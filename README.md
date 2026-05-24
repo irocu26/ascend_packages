@@ -20,7 +20,7 @@ colcon build  --packages-select ardupilot_sitl
 
 # To Clone this repo : 
 ``` 
-mkdir -p ~/ardu_ws/src/ascend_packages && git clone "https://github.com/irocu26/IROCU_26_EL.git"
+mkdir -p ~/ardu_ws/src && cd ~/ardu_ws/src && git clone "https://github.com/irocu26/ascend_packages.git"
 ```
 
 
