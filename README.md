@@ -15,7 +15,7 @@ cd ~/ardu_ws/src/ardupilot
 > Final Prerequisite Step
 ```
 cd ~/ardu_ws/
-colcon build ardupilot_sitl
+colcon build  --packages-select ardupilot_sitl
 ```
 
 # To Clone this repo : 
