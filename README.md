@@ -6,10 +6,9 @@ git fetch --all --tags
 git checkout ArduPilot-4.7
 git submodule update --init --recursive
 ```
-> Next step (May take while)
+> Next step (May take w)
 ```
-cd ~/ardu_ws/src/ardupilot
-./Tools/environment_install/install-prereqs-ubuntu.sh -y
+rm -rf ~/ardu_ws/build/ardupilot_sitl ~/ardu_ws/install/ardupilot_sitl
 
 ```
 > Final Prerequisite Step
