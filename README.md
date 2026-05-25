@@ -6,7 +6,7 @@ git fetch --all --tags
 git checkout ArduPilot-4.7
 git submodule update --init --recursive
 ```
-> Next step (May take w)
+> Next step
 ```
 rm -rf ~/ardu_ws/build/ardupilot_sitl ~/ardu_ws/install/ardupilot_sitl
 
