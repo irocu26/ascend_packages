@@ -7,10 +7,127 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(OpenCV REQUIRED)
+find_package(cv_bridge REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(Pangolin REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+
+
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 
+
+include_directories(
+  include
+
+  /home/saakshi-v/orb-slam3-root/ORB-SLAM3
+  /home/saakshi-v/orb-slam3-root/ORB-SLAM3/include
+  /home/saakshi-v/orb-slam3-root/ORB-SLAM3/include/CameraModels
+  /home/saakshi-v/orb-slam3-root/ORB-SLAM3/Thirdparty/Sophus
+
+  ${EIGEN3_INCLUDE_DIRS}
+  ${OpenCV_INCLUDE_DIRS}
+  ${Pangolin_INCLUDE_DIRS}
+)
+add_executable(orbslam_mono_node
+  src/orbslam_mono_node.cpp
+)
+target_include_directories(orbslam_mono_node PUBLIC
+  ${cv_bridge_INCLUDE_DIRS}
+)
+target_link_libraries(orbslam_mono_node
+  /home/saakshi-v/orb-slam3-root/ORB-SLAM3/lib/libORB_SLAM3.so
+  ${OpenCV_LIBS}
+  ${Pangolin_LIBRARIES}
+)
+ament_target_dependencies(orbslam_mono_node
+  rclcpp
+  sensor_msgs
+  geometry_msgs
+  cv_bridge
+)
+install(TARGETS
+  orbslam_mono_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+install(DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
+)
+
+
+# --- debug_camera_node ---
+add_executable(debug_camera_node src/debug_camera_node.cpp)
+target_include_directories(debug_camera_node PRIVATE
+  ${Pangolin_INCLUDE_DIRS}
+)
+target_link_libraries(debug_camera_node
+  ${OpenCV_LIBS}
+  ${Pangolin_LIBRARIES}
+)
+ament_target_dependencies(debug_camera_node
+  rclcpp
+  sensor_msgs
+  cv_bridge
+)
+install(TARGETS debug_camera_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+# --- debug_slam_node ---
+set(ORBSLAM3_ROOT /home/saakshi-v/orb-slam3-root/ORB-SLAM3)
+find_package(Pangolin REQUIRED)
+add_executable(debug_slam_node src/debug_slam_node.cpp)
+target_include_directories(debug_slam_node PRIVATE
+  ${ORBSLAM3_ROOT}
+  ${ORBSLAM3_ROOT}/include
+  ${ORBSLAM3_ROOT}/include/CameraModels
+  ${ORBSLAM3_ROOT}/Thirdparty/Sophus
+  ${OpenCV_INCLUDE_DIRS}
+  ${Pangolin_INCLUDE_DIRS}        # ADD THIS
+)
+target_link_libraries(debug_slam_node
+  ${ORBSLAM3_ROOT}/lib/libORB_SLAM3.so
+  ${OpenCV_LIBS}
+  ${Pangolin_LIBRARIES}           # ADD THIS
+)
+ament_target_dependencies(debug_slam_node
+  rclcpp
+  sensor_msgs
+  cv_bridge
+)
+install(TARGETS debug_slam_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+# --- slam_ros_node ---
+add_executable(slam_ros_node src/slam_ros_node.cpp)
+target_include_directories(slam_ros_node PRIVATE
+  ${ORBSLAM3_ROOT}
+  ${ORBSLAM3_ROOT}/include
+  ${ORBSLAM3_ROOT}/include/CameraModels
+  ${ORBSLAM3_ROOT}/Thirdparty/Sophus
+  ${OpenCV_INCLUDE_DIRS}
+  ${Pangolin_INCLUDE_DIRS}
+)
+target_link_libraries(slam_ros_node
+  ${ORBSLAM3_ROOT}/lib/libORB_SLAM3.so
+  ${OpenCV_LIBS}
+  ${Pangolin_LIBRARIES}
+)
+ament_target_dependencies(slam_ros_node
+  rclcpp
+  sensor_msgs
+  geometry_msgs
+  cv_bridge
+)
+install(TARGETS slam_ros_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+ 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
