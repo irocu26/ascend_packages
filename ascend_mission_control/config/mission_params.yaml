@@ -1,0 +1,14 @@
+
+# ASCEND Mission Control Parameters
+
+mission_executor:
+  ros__parameters:
+    control_loop_rate: 10.0
+    altitude_threshold: 0.5
+    gps_distance_threshold: 2.0
+    gps_accuracy_threshold: 5.0
+
+fcu_bridge:
+  ros__parameters:
+    heartbeat_rate: 10.0
+
