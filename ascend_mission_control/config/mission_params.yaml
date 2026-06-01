@@ -1,14 +1,52 @@
 
-# ASCEND Mission Control Parameters
 
-mission_executor:
+# ascend_mission_control/config/mission_params.yaml
+# All tuneable parameters for the ASCEND FSM and survey planner.
+# Load with: --params-file $(find ascend_mission_control)/config/mission_params.yaml
+
+ascend_fsm_node:
   ros__parameters:
-    control_loop_rate: 10.0
-    altitude_threshold: 0.5
-    gps_distance_threshold: 2.0
-    gps_accuracy_threshold: 5.0
 
-fcu_bridge:
+    # ── Flight parameters ──────────────────────────────────────────────────
+    survey_altitude:       3.0      # meters (rulebook: 2–6m, Section 10.3.5)
+    wp_accept_radius:      0.4      # meters — waypoint considered reached within this
+    low_battery_pct:       20.0     # % — trigger failsafe RTL below this
+    critical_battery_pct:  10.0     # % — trigger failsafe LAND below this
+
+    # ── Arena dimensions ───────────────────────────────────────────────────
+    arena_x_m:             10.67    # 35 ft
+    arena_y_m:             7.62     # 25 ft
+
+    # ── Mission parameters ─────────────────────────────────────────────────
+    total_features:        3        # Features to find (rulebook Section 10.5.2)
+    max_sorties:           5        # Safety cap on repeat sorties
+    hover_dwell_s:         1.5      # Seconds to hover before advancing waypoint
+    match_hover_s:         2.0      # Seconds to hover for match verification
+
+    # ── Timeouts ───────────────────────────────────────────────────────────
+    charge_timeout_s:      300.0    # Max wait for charging (5 min)
+    transfer_timeout_s:    60.0     # Max wait for data transfer (1 min)
+    arming_timeout_s:      10.0     # Max wait for arm confirmation
+    link_timeout_s:        3.0      # Seconds without pose → lost-link failsafe
+
+    # ── Mode ───────────────────────────────────────────────────────────────
+    sim_mode:              true     # Set false for real hardware
+
+survey_planner_node:
   ros__parameters:
-    heartbeat_rate: 10.0
+    survey_altitude:       3.0
+    strip_overlap:         0.3      # 30% strip overlap — ensures no gaps at 2–6m
+    arena_x_m:             10.67
+    arena_y_m:             7.62
+    wp_radius:             0.4
+    camera_hfov_deg:       90.0     # Horizontal FOV of drone camera
 
+mock_publisher_node:
+  ros__parameters:
+    scenario:              'normal'  # Options: normal | low_battery_rtl | multi_sortie | no_match
+    drone_speed_m_s:       1.0
+    publish_rate_hz:       20.0
+
+mission_monitor_node:
+  ros__parameters:
+    log_dir:               '/tmp/ascend_logs'
