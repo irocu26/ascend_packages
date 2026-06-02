@@ -14,7 +14,7 @@ class SiftMatcherNode(Node):
 
         # Declare parameters
         self.declare_parameter('seed_images_dir', os.path.expanduser('~/ardu_ws/seed_images'))
-        self.declare_parameter('image_topic', '/camera/color/image_raw')
+        self.declare_parameter('image_topic', '/rgbd_camera/image')
         self.declare_parameter('min_match_count', 4)
         self.declare_parameter('use_pysift', False)
 

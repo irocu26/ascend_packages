@@ -8,7 +8,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             'image_topic',
-            default_value='/camera/color/image_raw',
+            default_value='/rgbd_camera/image',
             description='Topic to subscribe for the video stream'
         ),
         DeclareLaunchArgument(

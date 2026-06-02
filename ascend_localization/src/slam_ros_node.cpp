@@ -48,12 +48,12 @@ public:
 
         // ── subscriber replaces VideoCapture loop ──
         sub_ = this->create_subscription<sensor_msgs::msg::Image>(
-            "/rgbd_camera/image",
+            "/image_raw",
             10,
             bind(&SlamRosNode::image_callback, this, placeholders::_1)
         );
 
-        cout << "SlamRosNode started, waiting for images on /rgbd_camera/image ..." << endl;
+        cout << "SlamRosNode started, waiting for images on /image_raw ..." << endl;
     }
 
     void save_and_shutdown()

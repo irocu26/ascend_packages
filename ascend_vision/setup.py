@@ -27,6 +27,7 @@ setup(
     entry_points={
         'console_scripts': [
             'sift_node = ascend_vision.sift_node:main',
+            #'camera_node=ascend_vision.camera_node',
         ],
     },
 )
