@@ -1,7 +1,5 @@
-
-
 # ascend_mission_control/config/mission_params.yaml
-# All tuneable parameters for the ASCEND FSM and survey planner.
+# All tuneable parameters for the ASCEND FSM, survey planner, and monitor.
 # Load with: --params-file $(find ascend_mission_control)/config/mission_params.yaml
 
 ascend_fsm_node:
@@ -11,6 +9,7 @@ ascend_fsm_node:
     survey_altitude:       3.0      # meters (rulebook: 2–6m, Section 10.3.5)
     wp_accept_radius:      0.4      # meters — waypoint considered reached within this
     low_battery_pct:       20.0     # % — trigger failsafe RTL below this
+    # ADDED: now a ROS parameter (was class constant, not tunable at runtime)
     critical_battery_pct:  10.0     # % — trigger failsafe LAND below this
 
     # ── Arena dimensions ───────────────────────────────────────────────────
@@ -19,6 +18,7 @@ ascend_fsm_node:
 
     # ── Mission parameters ─────────────────────────────────────────────────
     total_features:        3        # Features to find (rulebook Section 10.5.2)
+    # ADDED: now a ROS parameter (was class constant MAX_SORTIES)
     max_sorties:           5        # Safety cap on repeat sorties
     hover_dwell_s:         1.5      # Seconds to hover before advancing waypoint
     match_hover_s:         2.0      # Seconds to hover for match verification
@@ -41,12 +41,9 @@ survey_planner_node:
     wp_radius:             0.4
     camera_hfov_deg:       90.0     # Horizontal FOV of drone camera
 
-mock_publisher_node:
-  ros__parameters:
-    scenario:              'normal'  # Options: normal | low_battery_rtl | multi_sortie | no_match
-    drone_speed_m_s:       1.0
-    publish_rate_hz:       20.0
-
 mission_monitor_node:
   ros__parameters:
     log_dir:               '/tmp/ascend_logs'
+    # ADDED: must match ascend_fsm_node total_features for correct display
+    total_features:        3
+
