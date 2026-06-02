@@ -18,7 +18,7 @@ find_package(nav_msgs REQUIRED)
 find_package(Threads REQUIRED)
 
 # ADD THIS near the top, after all find_package() calls
-set(ORBSLAM3_ROOT /home/saakshi-v/orb-slam3-root/ORB-SLAM3)
+set(ORBSLAM3_ROOT /home/ronit/orb-slam3-root/ORB-SLAM3)
 find_package(Pangolin REQUIRED)
 
 # uncomment the following section in order to fill in
@@ -26,14 +26,18 @@ find_package(Pangolin REQUIRED)
 # find_package(<dependency> REQUIRED)
 
 
+if(NOT EXISTS "${ORBSLAM3_ROOT}/lib/libORB_SLAM3.so")
+  message(FATAL_ERROR
+    "libORB_SLAM3.so not found at ${ORBSLAM3_ROOT}/lib/.\n"
+    "Build ORB-SLAM3 first:  cd ${ORBSLAM3_ROOT} && ./build.sh")
+endif()
+
 include_directories(
   include
-
-  /home/saakshi-v/orb-slam3-root/ORB-SLAM3
-  /home/saakshi-v/orb-slam3-root/ORB-SLAM3/include
-  /home/saakshi-v/orb-slam3-root/ORB-SLAM3/include/CameraModels
-  /home/saakshi-v/orb-slam3-root/ORB-SLAM3/Thirdparty/Sophus
-
+  ${ORBSLAM3_ROOT}
+  ${ORBSLAM3_ROOT}/include
+  ${ORBSLAM3_ROOT}/include/CameraModels
+  ${ORBSLAM3_ROOT}/Thirdparty/Sophus
   ${EIGEN3_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
   ${Pangolin_INCLUDE_DIRS}
