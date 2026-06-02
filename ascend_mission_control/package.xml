@@ -2,13 +2,31 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>ascend_mission_control</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="vedantsutariya19@gmail.com">roswork</maintainer>
-  <license>TODO: License declaration</license>
+  <version>1.0.0</version>
+  <description>
+    ASCEND autonomous mission control package for IRoC-U 2026.
+    Provides the Finite State Machine (FSM), lawnmower survey planner,
+    mission monitor, and AP interface.
+  </description>
+  <maintainer email="irocu2026@ursc.gov.in">IRoCU-26 Team</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
 
   <depend>rclpy</depend>
+  <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+
+  <!--  added ardupilot_msgs — required by ap_interface.py for
+       ArmMotors, ModeSwitch, Takeoff service types -->
+  <depend>ardupilot_msgs</depend>
+
+  <!-- Custom messages — uncomment once ascend_msgs package is built -->
+  <!-- <depend>ascend_msgs</depend> -->
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
