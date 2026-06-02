@@ -29,14 +29,21 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            # Core FSM
+            # Core FSM brain
             'fsm_node = ascend_mission_control.fsm_node:main',
+
             # Survey waypoint planner
             'survey_planner_node = ascend_mission_control.survey_planner_node:main',
-            # Mission telemetry monitor
+
+            # Mission telemetry monitor (display-only)
             'mission_monitor_node = ascend_mission_control.mission_monitor_node:main',
-            # Test / simulation mock
-            'mock_publisher_node = ascend_mission_control.mock_publisher_node:main',
+
+            # FIXED: added ap_interface standalone test entry point
+            # Run this alone (with SITL + DDS agent) to verify AP commands work
+            # before integrating with the full FSM
+            'ap_interface = ascend_mission_control.ap_interface:main',
+
+           
         ],
     },
 )
