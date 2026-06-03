@@ -63,7 +63,7 @@ include_directories(
 #   ${cv_bridge_INCLUDE_DIRS}
 # )
 # target_link_libraries(orbslam_mono_node
-#   /home/saakshi-v/orb-slam3-root/ORB-SLAM3/lib/libORB_SLAM3.so
+#   /home/rpi/orb-slam3-root/ORB-SLAM3/lib/libORB_SLAM3.so
 #   ${OpenCV_LIBS}
 #   ${Pangolin_LIBRARIES}
 # )
@@ -102,10 +102,8 @@ install(TARGETS debug_camera_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
-<<<<<<< HEAD
-=======
 # # --- debug_slam_node ---
-# set(ORBSLAM3_ROOT /home/saakshi-v/orb-slam3-root/ORB-SLAM3)
+# set(ORBSLAM3_ROOT /home/rpi/orb-slam3-root/ORB-SLAM3)
 # find_package(Pangolin REQUIRED)
 # add_executable(debug_slam_node src/debug_slam_node.cpp)
 # target_include_directories(debug_slam_node PRIVATE
@@ -129,7 +127,6 @@ install(TARGETS debug_camera_node
 # install(TARGETS debug_slam_node
 #   DESTINATION lib/${PROJECT_NAME}
 # )
->>>>>>> 3f670fd (rpi)
 
 # --- slam_ros_node ---
 add_executable(slam_ros_node src/slam_ros_node.cpp)
