@@ -52,7 +52,7 @@ def generate_launch_description():
     altitude_arg = DeclareLaunchArgument(
         'survey_altitude',
         default_value='3.0',
-        description='Survey altitude in meters (2–6m per rulebook)'
+        description='Survey altitude in meters (2-6m per rulebook)'
     )
     survey_altitude = LaunchConfiguration('survey_altitude')
 

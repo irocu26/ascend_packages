@@ -23,6 +23,12 @@ ascend_fsm_node:
     hover_dwell_s:         1.5      # Seconds to hover before advancing waypoint
     match_hover_s:         2.0      # Seconds to hover for match verification
 
+    # ── Survey coverage + speed (full-area SIFT sweep) ─────────────────────
+    survey_strip_spacing:  1.0      # m between lawnmower rows — smaller = denser
+                                    #   coverage of the WHOLE arena (not just edges)
+    survey_speed:          0.4      # m/s horizontal — slow so SIFT can detect
+    row_step:              1.0      # m between intermediate points along each row
+
     # ── Timeouts ───────────────────────────────────────────────────────────
     charge_timeout_s:      300.0    # Max wait for charging (5 min)
     transfer_timeout_s:    60.0     # Max wait for data transfer (1 min)

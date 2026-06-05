@@ -95,35 +95,74 @@ class LawnmowerPattern:
     ARENA_X_M = 10.67
     ARENA_Y_M = 7.62
 
-    def __init__(self, altitude_m: float = 3.0, overlap_factor: float = 0.3):
-        self.altitude = altitude_m
-        self.overlap  = overlap_factor
-        strip_width_m = 2.0 * altitude_m * math.tan(math.radians(45))
-        self.strip_step = strip_width_m * (1.0 - overlap_factor)
-        self._waypoints = []
+    def __init__(self, altitude_m: float = 3.0, strip_spacing_m: float = 1.0,
+                 arena_x_m: float = 10.67, arena_y_m: float = 7.62,
+                 margin_m: float = 0.5, step_along_row_m: float = 0.0):
+        """
+        altitude_m       : survey altitude.
+        strip_spacing_m  : distance between adjacent lawnmower rows (smaller =
+                           denser coverage of the whole arena). This is the key
+                           knob — at 3 m altitude a ~1.0 m spacing gives full
+                           overlapping coverage instead of just 2 edge passes.
+        arena_x_m/y_m    : arena dimensions.
+        margin_m         : keep-out margin from the arena walls.
+        step_along_row_m : if > 0, insert intermediate waypoints along each row
+                           every this many metres. Gives the SIFT matcher more
+                           steady frames per row instead of one long dash.
+        """
+        self.altitude    = altitude_m
+        self.strip_step  = max(0.3, strip_spacing_m)
+        self.ARENA_X_M   = arena_x_m
+        self.ARENA_Y_M   = arena_y_m
+        self.margin      = margin_m
+        self.row_step    = step_along_row_m
+        self._waypoints  = []
         self._index = 0
         self._generate()
 
+    def _row_points(self, x_start, x_end, y):
+        """Return waypoints sweeping from x_start to x_end, optionally with
+        intermediate points every row_step metres."""
+        if self.row_step <= 0.0:
+            return [(x_start, y, self.altitude), (x_end, y, self.altitude)]
+        pts = []
+        n = int(abs(x_end - x_start) / self.row_step)
+        for i in range(n + 1):
+            frac = i / max(1, n)
+            x = x_start + (x_end - x_start) * frac
+            pts.append((x, y, self.altitude))
+        pts.append((x_end, y, self.altitude))
+        return pts
+
     def _generate(self):
         self._waypoints.clear()
-        y = 0.0
-        row = 0
-        x_start = 0.5
-        x_end   = self.ARENA_X_M - 0.5
-        y_end   = self.ARENA_Y_M - 0.5
+        x_start = self.margin
+        x_end   = self.ARENA_X_M - self.margin
+        y_start = self.margin
+        y_end   = self.ARENA_Y_M - self.margin
 
-        while y <= y_end:
+        y   = y_start
+        row = 0
+        last_y = y
+        while y <= y_end + 1e-6:
             if row % 2 == 0:
-                self._waypoints.append((x_start, y, self.altitude))
-                self._waypoints.append((x_end,   y, self.altitude))
+                self._waypoints.extend(self._row_points(x_start, x_end, y))
             else:
-                self._waypoints.append((x_end,   y, self.altitude))
-                self._waypoints.append((x_start, y, self.altitude))
+                self._waypoints.extend(self._row_points(x_end, x_start, y))
+            last_y = y
             y += self.strip_step
             row += 1
 
+        # If the fixed spacing didn't land on the far edge, add a final row so
+        # the top of the arena is still covered (no missed strip).
+        if last_y < y_end - 0.1:
+            if row % 2 == 0:
+                self._waypoints.extend(self._row_points(x_start, x_end, y_end))
+            else:
+                self._waypoints.extend(self._row_points(x_end, x_start, y_end))
+
         # Return to home corner at survey altitude
-        self._waypoints.append((0.5, 0.5, self.altitude))
+        self._waypoints.append((self.margin, self.margin, self.altitude))
 
     def reset(self):
         self._index = 0
@@ -185,6 +224,10 @@ class AscendFSMNode(Node):
         # CHANGE 4: these were class constants but not ROS params — now tunable from yaml
         self.declare_parameter('max_sorties',           self.MAX_SORTIES)
         self.declare_parameter('critical_battery_pct',  self.CRITICAL_BATTERY_PCT)
+        # Coverage + speed tuning for full-area SIFT survey
+        self.declare_parameter('survey_strip_spacing',  1.0)   # m between rows
+        self.declare_parameter('survey_speed',          0.4)   # m/s horizontal
+        self.declare_parameter('row_step',              1.0)   # m between in-row points
 
         self.survey_alt      = self.get_parameter('survey_altitude').value
         self.wp_radius       = self.get_parameter('wp_accept_radius').value
@@ -193,6 +236,11 @@ class AscendFSMNode(Node):
         self.sim_mode        = self.get_parameter('sim_mode').value
         self.max_sorties     = self.get_parameter('max_sorties').value
         self.crit_bat_pct    = self.get_parameter('critical_battery_pct').value
+        self.arena_x         = self.get_parameter('arena_x_m').value
+        self.arena_y         = self.get_parameter('arena_y_m').value
+        self.strip_spacing   = self.get_parameter('survey_strip_spacing').value
+        self.survey_speed    = self.get_parameter('survey_speed').value
+        self.row_step        = self.get_parameter('row_step').value
 
         # ── Internal state ───────────────────
         self._state              = State.IDLE
@@ -214,13 +262,28 @@ class AscendFSMNode(Node):
         self._failsafe_reason    = ''
         # CHANGE 6: track whether AP services are ready
         self._ap_services_ready  = False
+        self._mode_future        = None   # pending async mode-switch future
+        self._arm_future         = None   # pending async arm future
+        self._arming_step        = 0      # 0=mode, 1=arm
+        self._takeoff_sent       = False  # takeoff service called this sortie
+        self._takeoff_future     = None   # pending async takeoff future
 
         # ── Survey pattern ───────────────────
-        self._pattern    = LawnmowerPattern(altitude_m=self.survey_alt, overlap_factor=0.3)
+        self._pattern    = LawnmowerPattern(
+            altitude_m=self.survey_alt,
+            strip_spacing_m=self.strip_spacing,
+            arena_x_m=self.arena_x,
+            arena_y_m=self.arena_y,
+            step_along_row_m=self.row_step,
+        )
         self._current_wp = None
+        self.get_logger().info(
+            f'Survey pattern: {self._pattern.total_waypoints()} waypoints, '
+            f'strip spacing {self.strip_spacing}m, speed {self.survey_speed}m/s'
+        )
 
-        # CHANGE 1: create APInterface node — handles all ArduPilot DDS comms
-        self._ap = APInterface()
+        # CHANGE 1: APInterface attaches to this node so futures are processed
+        self._ap = APInterface(self)
 
         # ── QoS ─────────────────────────────
         reliable_qos = QoSProfile(
@@ -292,9 +355,10 @@ class AscendFSMNode(Node):
 
     def _cb_ap_pose(self, msg: PoseStamped):
         self._ap_pose = msg
-        # Use AP pose as fallback for link-timeout tracking when SLAM not running
-        if self._last_pose_time is None:
-            self._last_pose_time = self.get_clock().now()
+        # AP pose keeps the link-timeout fresh when SLAM is not running.
+        # Must update on EVERY message, not just the first — otherwise the
+        # timestamp goes stale and the lost-link failsafe fires falsely.
+        self._last_pose_time = self.get_clock().now()
 
     def _cb_battery(self, msg: BatteryState):
         if msg.percentage >= 0.0:
@@ -422,31 +486,67 @@ class AscendFSMNode(Node):
     def _state_arming(self):
         elapsed = self._elapsed_in_state()
 
-        # CHANGE 6: on first tick, check services and send arm via APInterface
-        if elapsed < 1.0:
-            if not self._ap_services_ready:
-                if self._ap.is_service_ready():
-                    self._ap_services_ready = True
-                    self.get_logger().info('AP services ready — sending arm command.')
-                    self._send_arm_command()
-                else:
-                    self.get_logger().info('Waiting for AP DDS services...')
+        # Wait for AP services to be ready
+        if not self._ap_services_ready:
+            if self._ap.is_service_ready():
+                self._ap_services_ready = True
+                self.get_logger().info('AP services ready — switching to GUIDED mode.')
+                self._mode_future = self._ap.set_mode_async(4)  # GUIDED
+            else:
+                self.get_logger().info('Waiting for AP DDS services...')
             return
 
-        if self._is_armed():
-            self.get_logger().info('Armed successfully — initiating takeoff.')
-            self._transition(State.TAKEOFF)
+        # Step 0: wait for GUIDED mode confirmation
+        if self._arming_step == 0:
+            if self._mode_future is None:
+                self._mode_future = self._ap.set_mode_async(4)
+                return
+            if self._mode_future.done():
+                if self._mode_future.result() is not None:
+                    self.get_logger().info('GUIDED mode confirmed — sending arm.')
+                    self._arming_step = 1
+                    self._arm_future = self._ap.arm_async()
+                else:
+                    self.get_logger().error('Mode switch failed — retrying.')
+                    self._mode_future = self._ap.set_mode_async(4)
+            return
+
+        # Step 1: wait for arm confirmation
+        if self._arming_step == 1:
+            if self._arm_future is not None and self._arm_future.done():
+                if self._arm_future.result() is not None:
+                    self._arm_confirmed = True
+                    self.get_logger().info('Armed successfully — initiating takeoff.')
+                    self._transition(State.TAKEOFF)
+                    return
+                else:
+                    self.get_logger().warn('Arm rejected — retrying.')
+                    self._arm_future = self._ap.arm_async()
             return
 
         if elapsed > self.ARMING_TIMEOUT_S:
             self.get_logger().error('Arming timed out — aborting mission.')
+            self._mode_future = None
+            self._arm_future  = None
+            self._arming_step = 0
             self._transition(State.IDLE)
             self._start_cmd_received = False  # Allow retry
 
     def _state_takeoff(self):
-        target = self._make_pose(0.5, 0.5, self.TAKEOFF_ALTITUDE_M)
-        self.pub_target_pose.publish(target)
-        self._send_position_cmd(0.5, 0.5, self.TAKEOFF_ALTITUDE_M)
+        # Send the ArduPilot takeoff service ONCE. In GUIDED mode the drone
+        # will not leave the ground from velocity setpoints alone — it needs
+        # an explicit takeoff command. We must NOT spam cmd_vel during the
+        # climb or it overrides the takeoff controller and the drone stays put.
+        if not self._takeoff_sent:
+            self.get_logger().info(f'Sending takeoff to {self.TAKEOFF_ALTITUDE_M}m...')
+            self._takeoff_future = self._ap.takeoff_async(self.TAKEOFF_ALTITUDE_M)
+            self._takeoff_sent = True
+            return
+
+        # Just publish the target pose for visualization while climbing.
+        self.pub_target_pose.publish(
+            self._make_pose(0.5, 0.5, self.TAKEOFF_ALTITUDE_M)
+        )
 
         current_z = self._get_current_z()
         if current_z is not None and current_z >= (self.TAKEOFF_ALTITUDE_M - 0.3):
@@ -454,6 +554,7 @@ class AscendFSMNode(Node):
                 f'Reached takeoff altitude {current_z:.2f}m — starting survey. '
                 f'Sortie #{self._sorties_done + 1}'
             )
+            self._takeoff_sent = False  # reset for next sortie
             self._pattern.reset()
             self._current_wp = self._pattern.next_waypoint()
             self._transition(State.SURVEY)
@@ -468,6 +569,17 @@ class AscendFSMNode(Node):
 
         x, y, z = self._current_wp
         self._send_position_cmd(x, y, z)
+
+        # Continuously report drone position + survey progress during the sweep.
+        cx, cy, cz = self._get_current_x(), self._get_current_y(), self._get_current_z()
+        if cx is not None:
+            self.get_logger().info(
+                f'SURVEY pos=({cx:+.2f}, {cy:+.2f}, {cz:.2f})m  '
+                f'→ wp=({x:.1f}, {y:.1f})  '
+                f'progress={self._pattern.progress()*100:.0f}%  '
+                f'features={len(self._features_found)}/{self.n_features}',
+                throttle_duration_sec=1.0
+            )
 
         if self._distance_to(x, y, z) < self.wp_radius:
             if self._elapsed_in_state() > self.HOVER_DWELL_S or self._state_entry_time is None:
@@ -664,25 +776,17 @@ class AscendFSMNode(Node):
     # ─────────────────────────────────────────
 
     def _send_arm_command(self):
-        """
-        CHANGE 2: now calls APInterface.guided_and_arm() for both sim and hardware.
-        ArduPilot handles sim correctly — no need for separate sim stub.
-        """
-        self.get_logger().info('Sending GUIDED + ARM via APInterface...')
-        success = self._ap.guided_and_arm()
-        if success:
-            self._arm_confirmed = True
-            self.get_logger().info('Armed successfully via APInterface.')
-        else:
-            self.get_logger().error('guided_and_arm() failed — will retry via arming timeout.')
+        pass  # arming is now handled step-by-step in _state_arming()
 
     def _is_armed(self) -> bool:
         return self._arm_confirmed
 
     def _send_disarm_command(self):
-        """CHANGE 3: calls APInterface.disarm() — works on hardware and sim."""
-        self._ap.disarm()
+        self._ap.disarm_async()
         self._arm_confirmed = False
+        self._arming_step   = 0
+        self._mode_future   = None
+        self._arm_future    = None
 
     def _send_position_cmd(self, x: float, y: float, z: float):
         """P-controller velocity setpoint → /ap/cmd_vel via APInterface."""
@@ -691,15 +795,18 @@ class AscendFSMNode(Node):
         current_z = self._get_current_z() or 0.0
 
         kp_xy, kp_z    = 0.5, 0.8
-        max_v_xy       = 1.5
+        max_v_xy       = self.survey_speed   # slow enough for SIFT to detect
         max_v_z        = 0.8
 
         vx = max(-max_v_xy, min(max_v_xy, kp_xy * (x - current_x)))
         vy = max(-max_v_xy, min(max_v_xy, kp_xy * (y - current_y)))
         vz = max(-max_v_z,  min(max_v_z,  kp_z  * (z - current_z)))
 
-        # Publish via APInterface (which owns the /ap/cmd_vel publisher)
-        self._ap.publish_velocity(vx, vy, vz)
+        # Publish in 'map' (world ENU) frame — NOT base_link. These velocities
+        # are computed from world-frame position errors, so they must be sent
+        # in the world frame. Using base_link makes ArduPilot rotate them by
+        # the drone's yaw, which creates positive feedback and a flyaway.
+        self._ap.publish_velocity(vx, vy, vz, frame_id='map')
 
         # Also publish target pose for visualization
         self.pub_target_pose.publish(self._make_pose(x, y, z))
