@@ -265,9 +265,13 @@ class TestMissionLogic:
         def check_failsafe(pct):
             if pct < CRIT_PCT:
                 return 'FAILSAFE_LAND'
-            if pct < LOW_PCT:
+
+            if CRIT_PCT < pct < LOW_PCT:
                 return 'FAILSAFE_RTL'
+
             return None
+
+
 
         assert check_failsafe(50.0) is None
         assert check_failsafe(15.0) == 'FAILSAFE_RTL'
