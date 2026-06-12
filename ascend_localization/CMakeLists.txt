@@ -16,6 +16,10 @@ find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(Threads REQUIRED)
+find_package(message_filters REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_msgs REQUIRED)
+
 
 # ADD THIS near the top, after all find_package() calls
 set(ORBSLAM3_ROOT /home/saakshi-v/orb-slam3-root/ORB-SLAM3)
@@ -142,7 +146,90 @@ ament_target_dependencies(slam_ros_node3
 install(TARGETS slam_ros_node3
   DESTINATION lib/${PROJECT_NAME}
 )
+# --- stereo_inertial_slam_node ---
+add_executable(stereo_inertial_slam_node src/stereo_inertial_slam_node.cpp)
+
+target_include_directories(stereo_inertial_slam_node PRIVATE
+  ${ORBSLAM3_ROOT}
+  ${ORBSLAM3_ROOT}/include
+  ${ORBSLAM3_ROOT}/include/CameraModels
+  ${ORBSLAM3_ROOT}/Thirdparty/Sophus
+  ${OpenCV_INCLUDE_DIRS}
+  ${Pangolin_INCLUDE_DIRS}
+)
+
+target_link_libraries(stereo_inertial_slam_node
+  ${ORBSLAM3_ROOT}/lib/libORB_SLAM3.so
+  ${OpenCV_LIBS}
+  ${Pangolin_LIBRARIES}
+  Threads::Threads
+)
+
+ament_target_dependencies(stereo_inertial_slam_node
+  rclcpp
+  sensor_msgs
+  geometry_msgs
+  nav_msgs
+  cv_bridge
+)
+
+install(TARGETS stereo_inertial_slam_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+# --- rgbd_slam_node ---
+add_executable(rgbd_slam_node src/rgbd_slam_node.cpp)
+
+target_include_directories(rgbd_slam_node PRIVATE
+  ${ORBSLAM3_ROOT}
+  ${ORBSLAM3_ROOT}/include
+  ${ORBSLAM3_ROOT}/include/CameraModels
+  ${ORBSLAM3_ROOT}/Thirdparty/Sophus
+  ${OpenCV_INCLUDE_DIRS}
+  ${Pangolin_INCLUDE_DIRS}
+)
+
+target_link_libraries(rgbd_slam_node
+  ${ORBSLAM3_ROOT}/lib/libORB_SLAM3.so
+  ${OpenCV_LIBS}
+  ${Pangolin_LIBRARIES}
+  Threads::Threads
+)
+
+ament_target_dependencies(rgbd_slam_node
+  rclcpp
+  sensor_msgs
+  nav_msgs
+  geometry_msgs
+  cv_bridge
+  message_filters
+  tf2_ros
+  tf2_msgs
+)
+
+install(TARGETS rgbd_slam_node
+  DESTINATION lib/${PROJECT_NAME})
  
+
+add_executable(
+  orbslam_to_ap_tf
+  src/orbslam_to_ap_tf.cpp
+)
+
+ament_target_dependencies(
+  orbslam_to_ap_tf
+  rclcpp
+  nav_msgs
+  tf2_msgs
+  geometry_msgs
+)
+
+install(
+  TARGETS orbslam_to_ap_tf
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
@@ -154,5 +241,12 @@ if(BUILD_TESTING)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
+
+install(
+  DIRECTORY
+    launch
+    config
+  DESTINATION share/${PROJECT_NAME}
+)
 
 ament_package()

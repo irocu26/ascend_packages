@@ -1,0 +1,78 @@
+%YAML:1.0
+
+#--------------------------------------------------------------------------------------------
+# ORB-SLAM3 RGBD configuration
+#
+# RGB topic:
+#   /rgbd_camera/image
+#
+# Depth topic:
+#   /rgbd_camera/depth_image
+#
+# Resolution:
+#   320 x 240
+#
+# Depth encoding:
+#   32FC1 (meters)
+#--------------------------------------------------------------------------------------------
+
+Camera.type: "PinHole"
+
+Camera.fx: 205.46962738
+Camera.fy: 205.46965600
+Camera.cx: 320.0
+Camera.cy: 240.0
+
+Camera.k1: 0.0
+Camera.k2: 0.0
+Camera.p1: 0.0
+Camera.p2: 0.0
+Camera.k3: 0.0
+
+Camera.width: 640
+Camera.height: 480
+
+# Measured from ros2 topic hz
+Camera.fps: 10.0
+
+Camera.RGB: 1
+
+#--------------------------------------------------------------------------------------------
+# Depth
+#--------------------------------------------------------------------------------------------
+
+# 32FC1 depth image already in meters
+DepthMapFactor: 1.0
+
+# Maximum depth considered "close"
+ThDepth: 20.0
+
+# RGB-D mode uses depth directly.
+# This value is not very critical in RGB-D mode.
+Camera.bf: 20.0
+
+#--------------------------------------------------------------------------------------------
+# ORB Extractor
+#--------------------------------------------------------------------------------------------
+
+ORBextractor.nFeatures: 2000 #works till 3m (1500)
+ORBextractor.scaleFactor: 1.2
+ORBextractor.nLevels: 8
+ORBextractor.iniThFAST: 20
+ORBextractor.minThFAST: 7
+
+#--------------------------------------------------------------------------------------------
+# Viewer
+#--------------------------------------------------------------------------------------------
+
+Viewer.KeyFrameSize:      0.05
+Viewer.KeyFrameLineWidth: 1
+Viewer.GraphLineWidth:    0.9
+Viewer.PointSize:         2
+Viewer.CameraSize:        0.08
+Viewer.CameraLineWidth:   3
+
+Viewer.ViewpointX:        0
+Viewer.ViewpointY:       -0.7
+Viewer.ViewpointZ:       -3.5
+Viewer.ViewpointF:        500
