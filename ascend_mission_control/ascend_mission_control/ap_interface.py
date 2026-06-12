@@ -37,7 +37,7 @@ HOW TO TEST STANDALONE (no FSM, no SLAM — just SITL):
 
 import time
 import rclpy
-from rclpy.node import Node
+from rclpy.node import Node  # used only by standalone main()
 from rclpy.qos import (
     QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 )
@@ -50,21 +50,22 @@ LAND_MODE   = 9
 LOITER_MODE = 5
 
 
-class APInterface(Node):
+class APInterface:
     """
-    Thin ROS2 wrapper around ArduPilot uXRCE-DDS services and topics.
-    Instantiate inside fsm_node and call methods from state handlers.
+    Thin wrapper around ArduPilot uXRCE-DDS services and topics.
+    NOT a ROS2 node — attaches clients/publishers to the parent node so
+    its futures are processed by the parent's executor.
 
     Example (inside AscendFSMNode.__init__):
-        self.ap = APInterface()
+        self._ap = APInterface(self)
 
     Example (inside _state_arming):
-        if self.ap.is_service_ready():
-            self.ap.guided_and_arm()
+        if self._ap.is_service_ready():
+            self._mode_future = self._ap.set_mode_async(4)
     """
 
-    def __init__(self):
-        super().__init__('ap_interface')
+    def __init__(self, node):
+        self._node = node
 
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -74,22 +75,22 @@ class APInterface(Node):
         )
 
         # ── Publisher ────────────────────────────────────────────────────
-        self.cmd_vel_pub = self.create_publisher(
+        self.cmd_vel_pub = node.create_publisher(
             TwistStamped, '/ap/cmd_vel', qos
         )
 
         # ── Service clients ──────────────────────────────────────────────
-        self.arm_client = self.create_client(
+        self.arm_client = node.create_client(
             ArmMotors, '/ap/arm_motors'
         )
-        self.mode_client = self.create_client(
+        self.mode_client = node.create_client(
             ModeSwitch, '/ap/mode_switch'
         )
-        self.takeoff_client = self.create_client(
+        self.takeoff_client = node.create_client(
             Takeoff, '/ap/experimental/takeoff'
         )
 
-        self.get_logger().info('APInterface ready — waiting for ArduPilot DDS services.')
+        node.get_logger().info('APInterface ready — waiting for ArduPilot DDS services.')
 
     # ── Service availability ─────────────────────────────────────────────
 
@@ -102,36 +103,55 @@ class APInterface(Node):
         )
 
     def wait_for_services(self, timeout_sec: float = 30.0) -> bool:
-        """
-        Block until all AP services are available or timeout.
-        Returns True if all available, False if timed out.
-        Call this once from fsm_node during ARMING state.
-        """
+        """Block until all AP services are available or timeout."""
         deadline = time.time() + timeout_sec
         while time.time() < deadline:
             if self.is_service_ready():
-                self.get_logger().info('All ArduPilot DDS services available.')
+                self._node.get_logger().info('All ArduPilot DDS services available.')
                 return True
-            rclpy.spin_once(self, timeout_sec=0.5)
-        self.get_logger().error('Timed out waiting for ArduPilot DDS services.')
+            rclpy.spin_once(self._node, timeout_sec=0.5)
+        self._node.get_logger().error('Timed out waiting for ArduPilot DDS services.')
         return False
 
     # ── Mode switch ──────────────────────────────────────────────────────
 
+    def set_mode_async(self, mode: int):
+        """Fire-and-forget mode switch. Returns a Future — caller polls it."""
+        req = ModeSwitch.Request()
+        req.mode = mode
+        return self.mode_client.call_async(req)
+
     def set_mode(self, mode: int) -> bool:
-        """
-        Switch ArduPilot flight mode.
-        Returns True on success, False on failure/timeout.
-        """
+<<<<<<< HEAD
+        """Blocking mode switch — only use outside a timer callback."""
         req = ModeSwitch.Request()
         req.mode = mode
         future = self.mode_client.call_async(req)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
+        rclpy.spin_until_future_complete(self._node, future, timeout_sec=5.0)
         if future.done() and future.result() is not None:
-            self.get_logger().info(f'Mode switched to {mode}.')
+            self._node.get_logger().info(f'Mode switched to {mode}.')
             return True
-        self.get_logger().error(f'Mode switch to {mode} failed or timed out.')
+        self._node.get_logger().error(f'Mode switch to {mode} failed or timed out.')
         return False
+=======
+        """
+        Send mode switch request asynchronously.
+        Non-blocking version safe for FSM callbacks.
+        """
+
+        req = ModeSwitch.Request()
+        req.mode = mode
+
+        self.mode_client.call_async(req)
+
+        self.get_logger().info(
+            f'Mode switch request sent: {mode}'
+        )
+
+        return True
+
+
+>>>>>>> 616afd7 (Local mission control updates)
 
     def guided_mode(self) -> bool:
         return self.set_mode(GUIDED_MODE)
@@ -144,39 +164,82 @@ class APInterface(Node):
 
     # ── Arm / disarm ─────────────────────────────────────────────────────
 
+<<<<<<< HEAD
+    def arm_async(self):
+        """Fire-and-forget arm. Returns a Future — caller polls it."""
+        req = ArmMotors.Request()
+        req.arm = True
+        return self.arm_client.call_async(req)
+
+    def disarm_async(self):
+        """Fire-and-forget disarm. Returns a Future — caller polls it."""
+        req = ArmMotors.Request()
+        req.arm = False
+        return self.arm_client.call_async(req)
+
     def arm(self) -> bool:
-        """
-        Arm motors. Returns True on success.
-        Must be in GUIDED mode first.
-        """
+        """Blocking arm — only use outside a timer callback."""
         req = ArmMotors.Request()
         req.arm = True
         future = self.arm_client.call_async(req)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
+        rclpy.spin_until_future_complete(self._node, future, timeout_sec=5.0)
         if future.done() and future.result() is not None:
-            self.get_logger().info('Motors armed.')
+            self._node.get_logger().info('Motors armed.')
             return True
-        self.get_logger().error('Arm command failed or timed out.')
+        self._node.get_logger().error('Arm command failed or timed out.')
         return False
 
     def disarm(self) -> bool:
-        """Disarm motors."""
+        """Blocking disarm — only use outside a timer callback."""
         req = ArmMotors.Request()
         req.arm = False
         future = self.arm_client.call_async(req)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
+        rclpy.spin_until_future_complete(self._node, future, timeout_sec=5.0)
         if future.done() and future.result() is not None:
-            self.get_logger().info('Motors disarmed.')
+            self._node.get_logger().info('Motors disarmed.')
             return True
-        self.get_logger().error('Disarm command failed or timed out.')
+        self._node.get_logger().error('Disarm command failed or timed out.')
         return False
+=======
+    
+    def arm(self) -> bool:
+        """
+        Send arm command asynchronously.
+        """
+
+        req = ArmMotors.Request()
+        req.arm = True
+
+        self.arm_client.call_async(req)
+
+        self.get_logger().info(
+            'Arm command sent.'
+        )
+
+        return True
+
+
+    def disarm(self) -> bool:
+        """
+        Send disarm command asynchronously.
+        """
+
+        req = ArmMotors.Request()
+        req.arm = False
+
+        self.arm_client.call_async(req)
+
+        self.get_logger().info(
+            'Disarm command sent.'
+        )
+
+        return True
+
+
+>>>>>>> 616afd7 (Local mission control updates)
 
     def guided_and_arm(self) -> bool:
-        """
-        Convenience: switch to GUIDED then arm.
-        This is what fsm_node calls from ARMING state.
-        Returns True only if both succeed.
-        """
+        """Blocking guided+arm — only use outside a timer callback."""
         if not self.guided_mode():
             return False
         time.sleep(0.5)
@@ -184,22 +247,37 @@ class APInterface(Node):
 
     # ── Takeoff ──────────────────────────────────────────────────────────
 
-    def takeoff(self, altitude: float = 3.0) -> bool:
-        """
-        Send takeoff command to ArduPilot.
-        altitude: target AGL altitude in metres (rulebook: 2–6m).
-        Returns True on success.
-        Drone must be armed and in GUIDED mode first.
-        """
+    def takeoff_async(self, altitude: float = 3.0):
+        """Fire-and-forget takeoff. Returns a Future — caller polls it."""
         req = Takeoff.Request()
         req.alt = float(altitude)
+        return self.takeoff_client.call_async(req)
+
+    def takeoff(self, altitude: float = 3.0) -> bool:
+        """
+        Send takeoff request asynchronously.
+        """
+
+        req = Takeoff.Request()
+        req.alt = float(altitude)
+<<<<<<< HEAD
         future = self.takeoff_client.call_async(req)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
+        rclpy.spin_until_future_complete(self._node, future, timeout_sec=5.0)
         if future.done() and future.result() is not None:
-            self.get_logger().info(f'Takeoff command sent — target {altitude:.1f}m AGL.')
+            self._node.get_logger().info(f'Takeoff command sent — target {altitude:.1f}m AGL.')
             return True
-        self.get_logger().error('Takeoff command failed or timed out.')
+        self._node.get_logger().error('Takeoff command failed or timed out.')
         return False
+=======
+
+        self.takeoff_client.call_async(req)
+
+        self.get_logger().info(
+            f'Takeoff request sent — target {altitude:.1f}m AGL.'
+        )
+
+        return True
+>>>>>>> 616afd7 (Local mission control updates)
 
     # ── Velocity commands ────────────────────────────────────────────────
 
@@ -221,7 +299,7 @@ class APInterface(Node):
         frame_id: coordinate frame ('base_link' for body, 'map' for world)
         """
         msg = TwistStamped()
-        msg.header.stamp    = self.get_clock().now().to_msg()
+        msg.header.stamp    = self._node.get_clock().now().to_msg()
         msg.header.frame_id = frame_id
         msg.twist.linear.x  = vx
         msg.twist.linear.y  = vy
@@ -244,68 +322,68 @@ def main(args=None):
     ros2 run ascend_mission_control ap_interface
     """
     rclpy.init(args=args)
-    node = APInterface()
+    ros_node = Node('ap_interface_test')
+    ap = APInterface(ros_node)
 
-    node.get_logger().info('Waiting for ArduPilot DDS services...')
-    if not node.wait_for_services(timeout_sec=30.0):
-        node.get_logger().error('Services not available. Is SITL + DDS agent running?')
-        node.destroy_node()
+    ros_node.get_logger().info('Waiting for ArduPilot DDS services...')
+    if not ap.wait_for_services(timeout_sec=30.0):
+        ros_node.get_logger().error('Services not available. Is SITL + DDS agent running?')
+        ros_node.destroy_node()
         rclpy.shutdown()
         return
 
-    node.get_logger().info('=== AP Interface standalone test ===')
+    ros_node.get_logger().info('=== AP Interface standalone test ===')
 
     # Step 1: GUIDED mode
-    node.get_logger().info('Step 1: Switching to GUIDED mode...')
-    node.guided_mode()
+    ros_node.get_logger().info('Step 1: Switching to GUIDED mode...')
+    ap.guided_mode()
     time.sleep(1.0)
 
     # Step 2: Arm
-    node.get_logger().info('Step 2: Arming motors...')
-    node.arm()
+    ros_node.get_logger().info('Step 2: Arming motors...')
+    ap.arm()
     time.sleep(1.0)
 
     # Step 3: Takeoff to 3m
-    node.get_logger().info('Step 3: Takeoff to 3.0m...')
-    node.takeoff(3.0)
-    time.sleep(8.0)   # Wait for climb
+    ros_node.get_logger().info('Step 3: Takeoff to 3.0m...')
+    ap.takeoff(3.0)
+    time.sleep(8.0)
 
-    # Step 4: Hover (zero velocity for 5s)
-    node.get_logger().info('Step 4: Hovering for 5s...')
+    # Step 4: Hover for 5s
+    ros_node.get_logger().info('Step 4: Hovering for 5s...')
     start = time.time()
     while time.time() - start < 5.0:
-        node.hover()
-        rclpy.spin_once(node, timeout_sec=0.1)
+        ap.hover()
+        rclpy.spin_once(ros_node, timeout_sec=0.1)
         time.sleep(0.1)
 
-    # Step 5: Move forward 2m for 3s
-    node.get_logger().info('Step 5: Moving forward at 0.5 m/s for 3s...')
+    # Step 5: Move forward at 0.5 m/s for 3s
+    ros_node.get_logger().info('Step 5: Moving forward at 0.5 m/s for 3s...')
     start = time.time()
     while time.time() - start < 3.0:
-        node.publish_velocity(vx=0.5)
-        rclpy.spin_once(node, timeout_sec=0.1)
+        ap.publish_velocity(vx=0.5)
+        rclpy.spin_once(ros_node, timeout_sec=0.1)
         time.sleep(0.1)
 
     # Step 6: Hover again
-    node.get_logger().info('Step 6: Hovering 3s...')
+    ros_node.get_logger().info('Step 6: Hovering 3s...')
     start = time.time()
     while time.time() - start < 3.0:
-        node.hover()
-        rclpy.spin_once(node, timeout_sec=0.1)
+        ap.hover()
+        rclpy.spin_once(ros_node, timeout_sec=0.1)
         time.sleep(0.1)
 
     # Step 7: Land
-    node.get_logger().info('Step 7: Switching to LAND mode...')
-    node.land_mode()
-
-    node.get_logger().info('=== AP Interface test complete ===')
+    ros_node.get_logger().info('Step 7: Switching to LAND mode...')
+    ap.land_mode()
+    ros_node.get_logger().info('=== AP Interface test complete ===')
 
     try:
-        rclpy.spin(node)
+        rclpy.spin(ros_node)
     except KeyboardInterrupt:
         pass
 
-    node.destroy_node()
+    ros_node.destroy_node()
     rclpy.shutdown()
 
 

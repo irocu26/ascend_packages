@@ -1,11 +1,14 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
+from std_msgs.msg import String
 from cv_bridge import CvBridge
 import cv2
 import numpy as np
 import os
 import glob
+import re
+import json
 import time
 
 class SiftMatcherNode(Node):
@@ -17,11 +20,20 @@ class SiftMatcherNode(Node):
         self.declare_parameter('image_topic', '/rgbd_camera/image')
         self.declare_parameter('min_match_count', 4)
         self.declare_parameter('use_pysift', False)
+        # How long (s) to suppress re-publishing the SAME seed_id as a match.
+        self.declare_parameter('match_debounce_s', 5.0)
+        # match_result topic the FSM listens on (String JSON fallback).
+        self.declare_parameter('match_result_topic', '/ascend/vision/match_result_str')
 
         seed_dir = self.get_parameter('seed_images_dir').value
         image_topic = self.get_parameter('image_topic').value
         self.MIN_MATCH_COUNT = self.get_parameter('min_match_count').value
         use_pysift = self.get_parameter('use_pysift').value
+        self.match_debounce_s = self.get_parameter('match_debounce_s').value
+        match_result_topic = self.get_parameter('match_result_topic').value
+
+        # Debounce bookkeeping: seed_id -> last publish wall-clock time
+        self._last_pub_time = {}
 
         self.bridge = CvBridge()
         self.seed_data = []  # List of dicts: 'name', 'img', 'kp', 'des'
@@ -54,6 +66,10 @@ class SiftMatcherNode(Node):
             10)
 
         self.publisher = self.create_publisher(Image, 'sift_matches', 10)
+
+        # Structured match result for the FSM (std_msgs/String JSON).
+        self.match_pub = self.create_publisher(String, match_result_topic, 10)
+        self.get_logger().info(f"Publishing match results to: {match_result_topic}")
 
         # Initialize FLANN matcher
         FLANN_INDEX_KDTREE = 0
@@ -89,7 +105,7 @@ class SiftMatcherNode(Node):
 
         self.get_logger().info(f"Found {len(image_files)} image(s) in {seed_dir}")
 
-        for filepath in sorted(image_files):
+        for load_index, filepath in enumerate(sorted(image_files)):
             img = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
             if img is None:
                 self.get_logger().warn(f"Failed to load image: {filepath}")
@@ -107,16 +123,32 @@ class SiftMatcherNode(Node):
                 )
                 continue
 
+            name = os.path.basename(filepath)
+            seed_id = self._derive_seed_id(name, load_index)
             self.seed_data.append({
-                'name': os.path.basename(filepath),
+                'name': name,
+                'seed_id': seed_id,
+                'path': filepath,          # used as hd_path in the match result
                 'img': img,
                 'kp': kp,
-                'des': np.float32(des),  # FLANN needs float32
+                'des': np.float32(des),    # FLANN needs float32
             })
             self.get_logger().info(
-                f"Loaded {os.path.basename(filepath)}: "
+                f"Loaded {name} (seed_id={seed_id}): "
                 f"{len(kp)} keypoints in {elapsed:.2f}s"
             )
+
+    def _derive_seed_id(self, filename, load_index):
+        """Map a seed filename to an integer seed_id.
+
+        Prefer the first number embedded in the filename (e.g. 'seed_3.png' -> 3,
+        '12.jpg' -> 12). If the name has no digits (e.g. 'Box.png'), fall back to
+        the load order index so every seed still gets a unique, stable id.
+        """
+        m = re.search(r'\d+', filename)
+        if m:
+            return int(m.group())
+        return load_index
 
     def image_callback(self, msg):
         if not self.seed_data:
@@ -219,6 +251,9 @@ class SiftMatcherNode(Node):
                 f"({len(best_match_good)} good matches)",
                 throttle_duration_sec=1.0
             )
+
+            # Tell the FSM about the match (debounced per seed_id).
+            self._publish_match(best_match_seed, len(best_match_good))
         else:
             n_good = len(best_match_good) if best_match_good else 0
             cv2.putText(
@@ -236,6 +271,32 @@ class SiftMatcherNode(Node):
             self.publisher.publish(self.bridge.cv2_to_imgmsg(result_img, "bgr8"))
         except Exception as e:
             self.get_logger().error(f"Publish error: {e}")
+
+    def _publish_match(self, seed, n_good):
+        """Publish a structured match result to the FSM, debounced per seed_id.
+
+        FSM expects std_msgs/String JSON: {seed_id, confidence, hd_path}.
+        """
+        seed_id = seed['seed_id']
+        now = time.time()
+        last = self._last_pub_time.get(seed_id, 0.0)
+        if now - last < self.match_debounce_s:
+            return  # suppress repeated publishes of the same seed
+        self._last_pub_time[seed_id] = now
+
+        # Confidence heuristic: scale good-match count toward 1.0. At 3x the
+        # minimum threshold we call it fully confident.
+        confidence = max(0.0, min(1.0, n_good / float(3 * self.MIN_MATCH_COUNT)))
+
+        payload = {
+            'seed_id':    int(seed_id),
+            'confidence': round(float(confidence), 3),
+            'hd_path':    seed['path'],
+        }
+        msg = String()
+        msg.data = json.dumps(payload)
+        self.match_pub.publish(msg)
+        self.get_logger().info(f"Published match result → {payload}")
 
 
 def main(args=None):
