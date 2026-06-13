@@ -122,7 +122,6 @@ class APInterface:
         return self.mode_client.call_async(req)
 
     def set_mode(self, mode: int) -> bool:
-<<<<<<< HEAD
         """Blocking mode switch — only use outside a timer callback."""
         req = ModeSwitch.Request()
         req.mode = mode
@@ -133,25 +132,6 @@ class APInterface:
             return True
         self._node.get_logger().error(f'Mode switch to {mode} failed or timed out.')
         return False
-=======
-        """
-        Send mode switch request asynchronously.
-        Non-blocking version safe for FSM callbacks.
-        """
-
-        req = ModeSwitch.Request()
-        req.mode = mode
-
-        self.mode_client.call_async(req)
-
-        self.get_logger().info(
-            f'Mode switch request sent: {mode}'
-        )
-
-        return True
-
-
->>>>>>> 616afd7 (Local mission control updates)
 
     def guided_mode(self) -> bool:
         return self.set_mode(GUIDED_MODE)
@@ -164,7 +144,6 @@ class APInterface:
 
     # ── Arm / disarm ─────────────────────────────────────────────────────
 
-<<<<<<< HEAD
     def arm_async(self):
         """Fire-and-forget arm. Returns a Future — caller polls it."""
         req = ArmMotors.Request()
@@ -200,43 +179,6 @@ class APInterface:
             return True
         self._node.get_logger().error('Disarm command failed or timed out.')
         return False
-=======
-    
-    def arm(self) -> bool:
-        """
-        Send arm command asynchronously.
-        """
-
-        req = ArmMotors.Request()
-        req.arm = True
-
-        self.arm_client.call_async(req)
-
-        self.get_logger().info(
-            'Arm command sent.'
-        )
-
-        return True
-
-
-    def disarm(self) -> bool:
-        """
-        Send disarm command asynchronously.
-        """
-
-        req = ArmMotors.Request()
-        req.arm = False
-
-        self.arm_client.call_async(req)
-
-        self.get_logger().info(
-            'Disarm command sent.'
-        )
-
-        return True
-
-
->>>>>>> 616afd7 (Local mission control updates)
 
     def guided_and_arm(self) -> bool:
         """Blocking guided+arm — only use outside a timer callback."""
@@ -260,7 +202,6 @@ class APInterface:
 
         req = Takeoff.Request()
         req.alt = float(altitude)
-<<<<<<< HEAD
         future = self.takeoff_client.call_async(req)
         rclpy.spin_until_future_complete(self._node, future, timeout_sec=5.0)
         if future.done() and future.result() is not None:
@@ -268,16 +209,6 @@ class APInterface:
             return True
         self._node.get_logger().error('Takeoff command failed or timed out.')
         return False
-=======
-
-        self.takeoff_client.call_async(req)
-
-        self.get_logger().info(
-            f'Takeoff request sent — target {altitude:.1f}m AGL.'
-        )
-
-        return True
->>>>>>> 616afd7 (Local mission control updates)
 
     # ── Velocity commands ────────────────────────────────────────────────
 

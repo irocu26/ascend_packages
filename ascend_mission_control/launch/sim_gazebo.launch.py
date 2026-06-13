@@ -38,23 +38,25 @@ Verify AP topics are live before starting:
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, LogInfo, TimerAction
+from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction, TimerAction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 import os
 from ament_index_python.packages import get_package_share_directory
 
 
-def generate_launch_description():
+def launch_setup(context, *args, **kwargs):
     pkg        = get_package_share_directory('ascend_mission_control')
     params_file = os.path.join(pkg, 'config', 'mission_params.yaml')
-
-    altitude_arg = DeclareLaunchArgument(
-        'survey_altitude',
-        default_value='3.0',
-        description='Survey altitude in meters (2-6m per rulebook)'
-    )
     survey_altitude = LaunchConfiguration('survey_altitude')
+
+    # `target` (sim | hw) drives sim_mode + use_sim_time. The FSM uses sim_mode
+    # for its clock/arming behaviour; everything else is identical sim vs hw.
+    target = LaunchConfiguration('target').perform(context)
+    if target not in ('sim', 'hw'):
+        raise RuntimeError(f"target must be 'sim' or 'hw', got '{target}'")
+    sim_mode = (target == 'sim')
+    use_sim_time = {'use_sim_time': sim_mode}
 
     # ── ASCEND FSM ────────────────────────────────────────────────────────
     fsm_node = Node(
@@ -65,9 +67,10 @@ def generate_launch_description():
         parameters=[
             params_file,
             {
-                'sim_mode':        True,
+                'sim_mode':        sim_mode,
                 'survey_altitude': survey_altitude,
-            }
+            },
+            use_sim_time,
         ]
     )
 
@@ -82,7 +85,8 @@ def generate_launch_description():
         output='screen',
         parameters=[
             params_file,
-            {'survey_altitude': survey_altitude}
+            {'survey_altitude': survey_altitude},
+            use_sim_time,
         ],
         remappings=[
             ('/ascend/localization/pose', '/ap/pose/filtered'),
@@ -95,7 +99,7 @@ def generate_launch_description():
         executable='mission_monitor_node',
         name='mission_monitor_node',
         output='screen',
-        parameters=[params_file],
+        parameters=[params_file, use_sim_time],
         remappings=[
             ('/ascend/localization/pose', '/ap/pose/filtered'),
         ]
@@ -114,7 +118,23 @@ def generate_launch_description():
     #     ]
     # )
 
+    return [fsm_node, survey_planner_node, monitor_node]
+
+
+def generate_launch_description():
+    target_arg = DeclareLaunchArgument(
+        'target',
+        default_value='sim',
+        description="Run target: 'sim' (Gazebo SITL) or 'hw' (real hardware).",
+    )
+    altitude_arg = DeclareLaunchArgument(
+        'survey_altitude',
+        default_value='3.0',
+        description='Survey altitude in meters (2-6m per rulebook)'
+    )
+
     return LaunchDescription([
+        target_arg,
         altitude_arg,
 
         LogInfo(msg='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'),
@@ -123,10 +143,5 @@ def generate_launch_description():
         LogInfo(msg='Position source: /ap/pose/filtered (ArduPilot EKF)'),
         LogInfo(msg='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'),
 
-        fsm_node,
-        survey_planner_node,
-        monitor_node,
-
-        # Removed: slam_bridge_node
-        # Removed: TimerAction wrapping slam_bridge_node
+        OpaqueFunction(function=launch_setup),
     ])

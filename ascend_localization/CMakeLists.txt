@@ -21,45 +21,39 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2_msgs REQUIRED)
 
 
-# ADD THIS near the top, after all find_package() calls
-set(ORBSLAM3_ROOT /home/ronit/orb-slam3-root/ORB-SLAM3)
+# ---------------------------------------------------------------------------
+# ORB-SLAM3 location is machine-specific (sim workstation vs Raspberry Pi 5).
+# Set it once per machine:  export ORB_SLAM3_ROOT=/path/to/ORB_SLAM3
+# Falls back to the repo-local build present on this workstation.
+# ---------------------------------------------------------------------------
+if(DEFINED ENV{ORB_SLAM3_ROOT})
+  set(ORBSLAM3_ROOT $ENV{ORB_SLAM3_ROOT})
+else()
+  set(ORBSLAM3_ROOT $ENV{HOME}/ardu_ws/ORB_SLAM3)
+endif()
 find_package(Pangolin REQUIRED)
 
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 
-<<<<<<< HEAD
-
 if(NOT EXISTS "${ORBSLAM3_ROOT}/lib/libORB_SLAM3.so")
   message(FATAL_ERROR
     "libORB_SLAM3.so not found at ${ORBSLAM3_ROOT}/lib/.\n"
-    "Build ORB-SLAM3 first:  cd ${ORBSLAM3_ROOT} && ./build.sh")
+    "Set ORB_SLAM3_ROOT or build ORB-SLAM3 first.")
 endif()
 
 include_directories(
   include
-=======
-set(ORBSLAM3_ROOT /home/rpi/orb-slam3-root/ORB-SLAM3)
-include_directories(
-  include
-
->>>>>>> 3f670fd (rpi)
   ${ORBSLAM3_ROOT}
   ${ORBSLAM3_ROOT}/include
   ${ORBSLAM3_ROOT}/include/CameraModels
   ${ORBSLAM3_ROOT}/Thirdparty/Sophus
-<<<<<<< HEAD
-=======
-
->>>>>>> 3f670fd (rpi)
   ${EIGEN3_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
   ${Pangolin_INCLUDE_DIRS}
 )
-<<<<<<< HEAD
 
-=======
 # add_executable(orbslam_mono_node
 #   src/orbslam_mono_node.cpp
 # )
@@ -67,7 +61,7 @@ include_directories(
 #   ${cv_bridge_INCLUDE_DIRS}
 # )
 # target_link_libraries(orbslam_mono_node
-#   /home/rpi/orb-slam3-root/ORB-SLAM3/lib/libORB_SLAM3.so
+#   ${ORBSLAM3_ROOT}/lib/libORB_SLAM3.so
 #   ${OpenCV_LIBS}
 #   ${Pangolin_LIBRARIES}
 # )
@@ -84,27 +78,26 @@ include_directories(
 # install(DIRECTORY launch
 #   DESTINATION share/${PROJECT_NAME}
 # )
->>>>>>> 3f670fd (rpi)
 
 
 # --- debug_camera_node ---
-add_executable(debug_camera_node src/debug_camera_node.cpp)
-target_include_directories(debug_camera_node PRIVATE
-  ${Pangolin_INCLUDE_DIRS}
-)
-target_link_libraries(debug_camera_node
-  ${OpenCV_LIBS}
-  ${Pangolin_LIBRARIES}
-)
-ament_target_dependencies(debug_camera_node
-  rclcpp
-  sensor_msgs
-  cv_bridge
-  nav_msgs
-)
-install(TARGETS debug_camera_node
-  DESTINATION lib/${PROJECT_NAME}
-)
+# add_executable(debug_camera_node src/debug_camera_node.cpp)
+# target_include_directories(debug_camera_node PRIVATE
+#   ${Pangolin_INCLUDE_DIRS}
+# )
+# target_link_libraries(debug_camera_node
+#   ${OpenCV_LIBS}
+#   ${Pangolin_LIBRARIES}
+# )
+# ament_target_dependencies(debug_camera_node
+#   rclcpp
+#   sensor_msgs
+#   cv_bridge
+#   nav_msgs
+# )
+# install(TARGETS debug_camera_node
+#   DESTINATION lib/${PROJECT_NAME}
+# )
 
 # # --- debug_slam_node ---
 # set(ORBSLAM3_ROOT /home/rpi/orb-slam3-root/ORB-SLAM3)
@@ -133,116 +126,121 @@ install(TARGETS debug_camera_node
 # )
 
 # --- slam_ros_node ---
-add_executable(slam_ros_node src/slam_ros_node.cpp)
-target_include_directories(slam_ros_node PRIVATE
-  ${ORBSLAM3_ROOT}
-  ${ORBSLAM3_ROOT}/include
-  ${ORBSLAM3_ROOT}/include/CameraModels
-  ${ORBSLAM3_ROOT}/Thirdparty/Sophus
-  ${OpenCV_INCLUDE_DIRS}
-  ${Pangolin_INCLUDE_DIRS}
-)
-target_link_libraries(slam_ros_node
-  ${ORBSLAM3_ROOT}/lib/libORB_SLAM3.so
-  ${OpenCV_LIBS}
-  ${Pangolin_LIBRARIES}
-)
-ament_target_dependencies(slam_ros_node
-  rclcpp  
-  sensor_msgs
-  geometry_msgs
-  nav_msgs
-  cv_bridge
-)
-install(TARGETS slam_ros_node
-  DESTINATION lib/${PROJECT_NAME}
-)
+# add_executable(slam_ros_node src/slam_ros_node.cpp)
+# target_include_directories(slam_ros_node PRIVATE
+#   ${ORBSLAM3_ROOT}
+#   ${ORBSLAM3_ROOT}/include
+#   ${ORBSLAM3_ROOT}/include/CameraModels
+#   ${ORBSLAM3_ROOT}/Thirdparty/Sophus
+#   ${OpenCV_INCLUDE_DIRS}
+#   ${Pangolin_INCLUDE_DIRS}
+# )
+# target_link_libraries(slam_ros_node
+#   ${ORBSLAM3_ROOT}/lib/libORB_SLAM3.so
+#   ${OpenCV_LIBS}
+#   ${Pangolin_LIBRARIES}
+# )
+# ament_target_dependencies(slam_ros_node
+#   rclcpp  
+#   sensor_msgs
+#   geometry_msgs
+#   nav_msgs
+#   cv_bridge
+# )
+# install(TARGETS slam_ros_node
+#   DESTINATION lib/${PROJECT_NAME}
+# )
 # --- slam_ros_node2 ---
-add_executable(slam_ros_node2 src/slam_ros_node2.cpp)
-target_include_directories(slam_ros_node2 PRIVATE
-  ${ORBSLAM3_ROOT}
-  ${ORBSLAM3_ROOT}/include
-  ${ORBSLAM3_ROOT}/include/CameraModels
-  ${ORBSLAM3_ROOT}/Thirdparty/Sophus
-  ${OpenCV_INCLUDE_DIRS}
-  ${Pangolin_INCLUDE_DIRS}
-)
-target_link_libraries(slam_ros_node2
-  ${ORBSLAM3_ROOT}/lib/libORB_SLAM3.so
-  ${OpenCV_LIBS}
-  ${Pangolin_LIBRARIES}
-)
-ament_target_dependencies(slam_ros_node2
-  rclcpp
-  sensor_msgs
-  geometry_msgs
-  nav_msgs
-  cv_bridge
-)
-install(TARGETS slam_ros_node2
-  DESTINATION lib/${PROJECT_NAME}
-)
+#litski0: DISABLED. slam_ros_node2.cpp calls SLAM.GetAtlas(), a custom accessor
+#litski0: that exists only in saakshi-v's modified ORB-SLAM3 fork, NOT in the
+#litski0: stock ORB-SLAM3 built on this machine -> compile error. The .cpp is
+#litski0: kept intact; re-enable once System exposes GetAtlas() (or port the
+#litski0: save_point_cloud() helper to the public GetTrackedMapPoints() API).
+# add_executable(slam_ros_node2 src/slam_ros_node2.cpp)
+# target_include_directories(slam_ros_node2 PRIVATE
+#   ${ORBSLAM3_ROOT}
+#   ${ORBSLAM3_ROOT}/include
+#   ${ORBSLAM3_ROOT}/include/CameraModels
+#   ${ORBSLAM3_ROOT}/Thirdparty/Sophus
+#   ${OpenCV_INCLUDE_DIRS}
+#   ${Pangolin_INCLUDE_DIRS}
+# )
+# target_link_libraries(slam_ros_node2
+#   ${ORBSLAM3_ROOT}/lib/libORB_SLAM3.so
+#   ${OpenCV_LIBS}
+#   ${Pangolin_LIBRARIES}
+# )
+# ament_target_dependencies(slam_ros_node2
+#   rclcpp
+#   sensor_msgs
+#   geometry_msgs
+#   nav_msgs
+#   cv_bridge
+# )
+# install(TARGETS slam_ros_node2
+#   DESTINATION lib/${PROJECT_NAME}
+# )
 
 # --- slam_ros_node3 ---
-add_executable(slam_ros_node3 src/slam_ros_node3.cpp)
+# add_executable(slam_ros_node3 src/slam_ros_node3.cpp)
 
-target_include_directories(slam_ros_node3 PRIVATE
-  ${ORBSLAM3_ROOT}
-  ${ORBSLAM3_ROOT}/include
-  ${ORBSLAM3_ROOT}/include/CameraModels
-  ${ORBSLAM3_ROOT}/Thirdparty/Sophus
-  ${OpenCV_INCLUDE_DIRS}
-  ${Pangolin_INCLUDE_DIRS}
-)
+# target_include_directories(slam_ros_node3 PRIVATE
+#   ${ORBSLAM3_ROOT}
+#   ${ORBSLAM3_ROOT}/include
+#   ${ORBSLAM3_ROOT}/include/CameraModels
+#   ${ORBSLAM3_ROOT}/Thirdparty/Sophus
+#   ${OpenCV_INCLUDE_DIRS}
+#   ${Pangolin_INCLUDE_DIRS}
+# )
 
-target_link_libraries(slam_ros_node3
-  ${ORBSLAM3_ROOT}/lib/libORB_SLAM3.so
-  ${OpenCV_LIBS}
-  ${Pangolin_LIBRARIES}
-  Threads::Threads
-)
+# target_link_libraries(slam_ros_node3
+#   ${ORBSLAM3_ROOT}/lib/libORB_SLAM3.so
+#   ${OpenCV_LIBS}
+#   ${Pangolin_LIBRARIES}
+#   Threads::Threads
+# )
 
-ament_target_dependencies(slam_ros_node3
-  rclcpp
-  sensor_msgs
-  geometry_msgs
-  nav_msgs
-  cv_bridge
-)
+# ament_target_dependencies(slam_ros_node3
+#   rclcpp
+#   sensor_msgs
+#   geometry_msgs
+#   nav_msgs
+#   cv_bridge
+# )
 
-install(TARGETS slam_ros_node3
-  DESTINATION lib/${PROJECT_NAME}
-)
+# install(TARGETS slam_ros_node3
+#   DESTINATION lib/${PROJECT_NAME}
+# )
 # --- stereo_inertial_slam_node ---
-add_executable(stereo_inertial_slam_node src/stereo_inertial_slam_node.cpp)
+# add_executable(stereo_inertial_slam_node src/stereo_inertial_slam_node.cpp)
 
-target_include_directories(stereo_inertial_slam_node PRIVATE
-  ${ORBSLAM3_ROOT}
-  ${ORBSLAM3_ROOT}/include
-  ${ORBSLAM3_ROOT}/include/CameraModels
-  ${ORBSLAM3_ROOT}/Thirdparty/Sophus
-  ${OpenCV_INCLUDE_DIRS}
-  ${Pangolin_INCLUDE_DIRS}
-)
+# target_include_directories(stereo_inertial_slam_node PRIVATE
+#   ${ORBSLAM3_ROOT}
+#   ${ORBSLAM3_ROOT}/include
+#   ${ORBSLAM3_ROOT}/include/CameraModels
+#   ${ORBSLAM3_ROOT}/Thirdparty/Sophus
+#   ${OpenCV_INCLUDE_DIRS}
+#   ${Pangolin_INCLUDE_DIRS}
+# )
 
-target_link_libraries(stereo_inertial_slam_node
-  ${ORBSLAM3_ROOT}/lib/libORB_SLAM3.so
-  ${OpenCV_LIBS}
-  ${Pangolin_LIBRARIES}
-  Threads::Threads
-)
+# target_link_libraries(stereo_inertial_slam_node
+#   ${ORBSLAM3_ROOT}/lib/libORB_SLAM3.so
+#   ${OpenCV_LIBS}
+#   ${Pangolin_LIBRARIES}
+#   Threads::Threads
+# )
 
-ament_target_dependencies(stereo_inertial_slam_node
-  rclcpp
-  sensor_msgs
-  geometry_msgs
-  nav_msgs
-  cv_bridge
-)
+# ament_target_dependencies(stereo_inertial_slam_node
+#   rclcpp
+#   sensor_msgs
+#   geometry_msgs
+#   nav_msgs
+#   cv_bridge
+# )
 
-install(TARGETS stereo_inertial_slam_node
-  DESTINATION lib/${PROJECT_NAME}
-)
+# install(TARGETS stereo_inertial_slam_node
+#   DESTINATION lib/${PROJECT_NAME}
+# )
 
 # --- rgbd_slam_node ---
 add_executable(rgbd_slam_node src/rgbd_slam_node.cpp)
@@ -278,21 +276,85 @@ install(TARGETS rgbd_slam_node
   DESTINATION lib/${PROJECT_NAME})
  
 
-add_executable(
-  orbslam_to_ap_tf
-  src/orbslam_to_ap_tf.cpp
-)
+# add_executable(
+#   orbslam_to_ap_tf
+#   src/orbslam_to_ap_tf.cpp
+# )
 
-ament_target_dependencies(
-  orbslam_to_ap_tf
+# ament_target_dependencies(
+#   orbslam_to_ap_tf
+#   rclcpp
+#   nav_msgs
+#   tf2_msgs
+#   geometry_msgs
+# )
+
+# install(
+#   TARGETS orbslam_to_ap_tf
+#   DESTINATION lib/${PROJECT_NAME}
+# )
+
+
+#litski0: =====================================================================
+#litski0: Working RGBD odometry + ArduPilot relay ported from
+#litski0: ROS2_ORB-SLAM3_Odometry. These are the nodes the modular sim/hw
+#litski0: launch uses. New target names (rgbd / slam_to_ap) so they don't
+#litski0: collide with the team's existing rgbd_slam_node / orbslam_to_ap_tf.
+#litski0: =====================================================================
+
+#litski0: extra deps needed by the AP relay (not find_package'd above)
+find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(builtin_interfaces REQUIRED)
+
+#litski0: rgbd -- ORB-SLAM3 RGBD visual odometry (src/rgbd/)
+#litski0:   argv: <vocabulary> <settings.yaml> <doRectify> <CLAHE>
+add_executable(rgbd
+  src/rgbd/rgbd.cpp
+  src/rgbd/rgbd-slam-node.cpp
+)
+target_include_directories(rgbd PRIVATE
+  ${ORBSLAM3_ROOT}
+  ${ORBSLAM3_ROOT}/include
+  ${ORBSLAM3_ROOT}/include/CameraModels
+  ${ORBSLAM3_ROOT}/Thirdparty/Sophus
+  ${OpenCV_INCLUDE_DIRS}
+  ${Pangolin_INCLUDE_DIRS}
+)
+target_link_libraries(rgbd
+  ${ORBSLAM3_ROOT}/lib/libORB_SLAM3.so
+  ${OpenCV_LIBS}
+  ${Pangolin_LIBRARIES}
+  Threads::Threads
+)
+ament_target_dependencies(rgbd
   rclcpp
+  sensor_msgs
   nav_msgs
-  tf2_msgs
   geometry_msgs
+  cv_bridge
+  message_filters
+  tf2_ros
+)
+install(TARGETS rgbd
+  DESTINATION lib/${PROJECT_NAME}
 )
 
-install(
-  TARGETS orbslam_to_ap_tf
+#litski0: slam_to_ap -- relay SLAM pose -> ArduPilot DDS (src/ap/tfConverter.cpp)
+#litski0:   pure ROS node, no ORB_SLAM3 / OpenCV dependency
+add_executable(slam_to_ap
+  src/ap/tfConverter.cpp
+)
+ament_target_dependencies(slam_to_ap
+  rclcpp
+  geometry_msgs
+  tf2
+  tf2_ros
+  tf2_msgs
+  tf2_geometry_msgs
+  builtin_interfaces
+)
+install(TARGETS slam_to_ap
   DESTINATION lib/${PROJECT_NAME}
 )
 
