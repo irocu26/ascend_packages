@@ -18,53 +18,43 @@ SlamRelayNode::SlamRelayNode() : Node("slam_to_ap"), is_aligned_(false)
         "/ap/time", ap_time_qos,
         std::bind(&SlamRelayNode::ap_time_callback, this, std::placeholders::_1));
 
-    // 3. TF Listener to grab the initial GPS/EKF offset from ArduPilot
-    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
-    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+    // 3. Init offset comes from AP's own EKF pose (/ap/pose/filtered), NOT a TF.
+    //    AP_DDS publishes this PoseStamped (ENU, body-in-odom) on BOTH sim and
+    //    hardware; the odom->base_link TF only existed in sim (Gazebo published
+    //    it). Same BEST_EFFORT QoS gotcha as /ap/time.
+    auto ap_pose_qos = rclcpp::QoS(10).best_effort();
+    ap_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+        "/ap/pose/filtered", ap_pose_qos,
+        std::bind(&SlamRelayNode::ap_pose_callback, this, std::placeholders::_1));
 
     // 4. Debug broadcaster for tfConvert_odom -> tfConvert_body
     debug_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(this);
 
-    // 5. Visual-scale correction. Default 0.5 (monocular-style); set to 1.0 for
-    //    metric stereo / stereo-inertial via the "scale" ROS parameter.
+    // 5. Visual-scale correction. 1.0 for metric RGBD / stereo-inertial.
     scale_ = this->declare_parameter<double>("scale", 1);
 
-    // 6. Frame to align against at init. The SLAM node now outputs true ENU
-    //    (downward-mount corrected there), so we align to the level body frame.
-    //    Do NOT use the camera frame here or the mount rotation is double-applied.
-    offset_frame_ = this->declare_parameter<std::string>("offset_frame", "base_link");
-
     RCLCPP_INFO(this->get_logger(),
-        "SLAM Relay Initialized (scale=%.3f, offset_frame=%s). Waiting for SLAM data...",
-        scale_, offset_frame_.c_str());
+        "SLAM Relay Initialized (scale=%.3f). Waiting for SLAM + /ap/pose/filtered...",
+        scale_);
 }
 
 void SlamRelayNode::slam_tf_callback(const geometry_msgs::msg::TransformStamped::SharedPtr msg)
 {
     // --- STATE 1: ALIGNMENT ---
-    // The trigger is the FIRST SLAM tf. ArduPilot's EKF is already publishing
-    // odom->base_link continuously, so at this instant we simply snapshot its
-    // latest pose and freeze it as our permanent origin offset.
+    // The trigger is the FIRST SLAM tf. We freeze AP's current EKF body pose
+    // (/ap/pose/filtered) as the permanent origin+heading offset, anchoring SLAM's
+    // (0,0,0)-at-init to where AP believes the body is.
     if (!is_aligned_) {
-        try {
-            // Capture odom -> camera-frame: this freezes BOTH the origin offset
-            // and the full camera orientation (gimbal pitch included), so SLAM's
-            // camera-frame motion is mapped into the correct world axes.
-            geometry_msgs::msg::TransformStamped offset_msg = tf_buffer_->lookupTransform(
-                "odom", offset_frame_, tf2::TimePointZero);
-
-            tf2::fromMsg(offset_msg.transform, t_offset_);
-            is_aligned_ = true;
-            RCLCPP_INFO(this->get_logger(),
-                "First SLAM tf received. Captured odom->%s offset+rotation. Injecting SLAM into ArduPilot.",
-                offset_frame_.c_str());
-        } catch (const tf2::TransformException & ex) {
-            // ArduPilot should always have a transform ready; if not, skip this
-            // frame and try again on the next SLAM tf rather than aligning to a stale origin.
-            RCLCPP_ERROR(this->get_logger(),
-                "SLAM tf arrived but odom->%s lookup failed: %s", offset_frame_.c_str(), ex.what());
+        if (!ap_pose_.has_value()) {
+            RCLCPP_WARN_SKIPFIRST_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                "SLAM tf arrived but no /ap/pose/filtered yet - cannot align "
+                "(check the topic is up, BEST_EFFORT QoS).");
             return;
         }
+        tf2::fromMsg(ap_pose_->pose, t_offset_);
+        is_aligned_ = true;
+        RCLCPP_INFO(this->get_logger(),
+            "First SLAM tf received. Captured AP pose offset. Injecting SLAM into ArduPilot.");
     }
 
     // --- STATE 2: TRACKING ---
@@ -112,6 +102,11 @@ void SlamRelayNode::slam_tf_callback(const geometry_msgs::msg::TransformStamped:
 void SlamRelayNode::ap_time_callback(const builtin_interfaces::msg::Time::SharedPtr msg)
 {
     ap_time_ = *msg;
+}
+
+void SlamRelayNode::ap_pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+{
+    ap_pose_ = *msg;
 }
 
 int main(int argc, char **argv)
