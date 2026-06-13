@@ -93,6 +93,33 @@ def launch_setup(context, *args, **kwargs):
         ]
     )
 
+    aruco_detector_node = Node(
+        package='ascend_mission_control',
+        executable='aruco_detector_node',
+        name='aruco_detector_node',
+        output='screen',
+        parameters=[
+            {
+                'marker_size_m': 0.3,
+                'aruco_dict': '4X4_50',
+                'target_marker_id': 0,
+                'publish_debug': True,
+                'camera_topic': '/camera/image',
+                'camera_info_topic': '/camera/camera_info',
+            }
+        ]
+    )
+
+    precision_landing_node = Node(
+        package='ascend_mission_control',
+        executable='precision_landing_node',
+        name='precision_landing_node',
+        output='screen',
+        parameters=[params_file]
+    )
+
+
+
     # ── Mission Monitor ───────────────────────────────────────────────────
     monitor_node = Node(
         package='ascend_mission_control',
@@ -144,4 +171,12 @@ def generate_launch_description():
         LogInfo(msg='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'),
 
         OpaqueFunction(function=launch_setup),
+        fsm_node,
+        survey_planner_node,
+        monitor_node,
+        aruco_detector_node,
+        precision_landing_node,
+
+        # Removed: slam_bridge_node
+        # Removed: TimerAction wrapping slam_bridge_node
     ])

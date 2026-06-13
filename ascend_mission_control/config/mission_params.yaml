@@ -53,3 +53,14 @@ mission_monitor_node:
     # ADDED: must match ascend_fsm_node total_features for correct display
     total_features:        3
 
+precision_landing_node:
+  ros__parameters:
+    kp_horizontal: 0.4
+    kp_descent: 0.3
+    max_vel_xy_m_s: 0.5
+    max_vel_z_m_s: 0.4
+    error_margin_m: 0.12
+    align_hold_time_s: 2.0
+    descent_target_m: 1.2
+    search_timeout_s: 8.0
+    brake_on_lost: true

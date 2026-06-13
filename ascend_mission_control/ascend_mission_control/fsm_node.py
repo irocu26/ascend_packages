@@ -267,6 +267,8 @@ class AscendFSMNode(Node):
         self._arming_step        = 0      # 0=mode, 1=arm
         self._takeoff_sent       = False  # takeoff service called this sortie
         self._takeoff_future     = None   # pending async takeoff future
+        self._plnd_started       = False
+        self._plnd_complete      = False
 
         # ── Survey pattern ───────────────────
         self._pattern    = LawnmowerPattern(
@@ -317,6 +319,13 @@ class AscendFSMNode(Node):
             Bool, '/ascend/ground_station/transfer_done', self._cb_transfer_done, reliable_qos
         )
 
+        self.sub_plnd_complete = self.create_subscription(
+            Bool,
+            '/ascend/precision_landing/complete',
+            self._cb_plnd_complete,
+            reliable_qos
+        )
+
         if CUSTOM_MSGS:
             self.sub_match = self.create_subscription(
                 MatchResult, '/ascend/vision/match_result', self._cb_match, reliable_qos
@@ -333,6 +342,13 @@ class AscendFSMNode(Node):
         self.pub_start_transfer = self.create_publisher(Bool,        '/ascend/mission_control/start_transfer',   reliable_qos)
         self.pub_start_charge   = self.create_publisher(Bool,        '/ascend/mission_control/start_charge',     reliable_qos)
         self.pub_failsafe       = self.create_publisher(String,      '/ascend/mission_control/failsafe_triggered', reliable_qos)
+        self.pub_plnd_start = self.create_publisher(
+            Bool,
+            '/ascend/precision_landing/start',
+            reliable_qos
+        )
+
+
 
         if CUSTOM_MSGS:
             self.pub_coord_log = self.create_publisher(CoordLog, '/ascend/mission_control/coord_log', reliable_qos)
@@ -413,6 +429,16 @@ class AscendFSMNode(Node):
         if msg.data:
             self._transfer_done = True
             self.get_logger().info('Data transfer complete signal received.')
+
+    def _cb_plnd_complete(self, msg: Bool):
+
+        if msg.data:
+            self._plnd_complete = True
+
+            self.get_logger().info(
+                'Precision landing completed.'
+            )
+
 
     # ─────────────────────────────────────────
     #  FSM Tick (10 Hz)
@@ -644,13 +670,36 @@ class AscendFSMNode(Node):
             self._transition(State.LANDING)
 
     def _state_landing(self):
-        current_z = self._get_current_z() or self.survey_alt
-        target_z  = max(0.0, current_z - 0.05)
-        self._send_position_cmd(self.DOCK_TARGET_X, self.DOCK_TARGET_Y, target_z)
 
-        if current_z < 0.15:
-            self.get_logger().info('Landed — entering docking state.')
+        # Trigger precision landing node ONCE
+        if not self._plnd_started:
+
+            msg = Bool()
+            msg.data = True
+
+            self.pub_plnd_start.publish(msg)
+
+            self._plnd_started = True
+            self._plnd_complete = False
+
+            self.get_logger().info(
+                'Precision landing initiated.'
+            )
+
+            return
+
+        # Wait for precision landing node to finish
+        if self._plnd_complete:
+
+            self.get_logger().info(
+                'Precision landing successful — entering docking.'
+            )
+
             self._send_disarm_command()
+
+            self._plnd_started = False
+            self._plnd_complete = False
+
             self._transition(State.DOCKING)
 
     def _state_docking(self):

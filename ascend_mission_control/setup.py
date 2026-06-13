@@ -29,6 +29,11 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            
+            'aruco_detector_node = ascend_mission_control.aruco_detector_node:main',
+            'precision_landing_node = ascend_mission_control.precision_landing_node:main',
+
+
             # Core FSM brain
             'fsm_node = ascend_mission_control.fsm_node:main',
 
