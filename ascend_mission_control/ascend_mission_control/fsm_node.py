@@ -72,6 +72,7 @@ class State(Enum):
     TAKEOFF         = auto()
     SURVEY          = auto()
     MATCH_VERIFY    = auto()
+    NAV_DEGRADED    = auto()
     RTL             = auto()
     LANDING         = auto()
     DOCKING         = auto()
@@ -209,6 +210,9 @@ class AscendFSMNode(Node):
     CHARGE_TIMEOUT_S        = 300.0
     TRANSFER_TIMEOUT_S      = 60.0
     ARMING_TIMEOUT_S        = 10.0
+    # ArduCopter flight-mode numbers
+    GUIDED_MODE             = 4
+    LOITER_MODE             = 5
 
     def __init__(self):
         super().__init__('ascend_fsm_node')
@@ -269,6 +273,10 @@ class AscendFSMNode(Node):
         self._takeoff_future     = None   # pending async takeoff future
         self._plnd_started       = False
         self._plnd_complete      = False
+        # SLAM-degraded hold (NAV_DEGRADED) — driven by ekf_source_manager's slam_ok.
+        self._slam_ok            = True   # assume OK until told otherwise
+        self._resume_state       = None   # state to return to after recovery
+        self._loiter_sent        = False  # LOITER commanded for this degrade
 
         # ── Survey pattern ───────────────────
         self._pattern    = LawnmowerPattern(
@@ -324,6 +332,10 @@ class AscendFSMNode(Node):
             '/ascend/precision_landing/complete',
             self._cb_plnd_complete,
             reliable_qos
+        )
+
+        self.sub_slam_ok = self.create_subscription(
+            Bool, '/ascend/localization/slam_ok', self._cb_slam_ok, reliable_qos
         )
 
         if CUSTOM_MSGS:
@@ -439,6 +451,9 @@ class AscendFSMNode(Node):
                 'Precision landing completed.'
             )
 
+    def _cb_slam_ok(self, msg: Bool):
+        self._slam_ok = bool(msg.data)
+
 
     # ─────────────────────────────────────────
     #  FSM Tick (10 Hz)
@@ -446,12 +461,14 @@ class AscendFSMNode(Node):
 
     def _fsm_tick(self):
         self._check_failsafe_conditions()
+        self._check_nav_degraded()
 
         if   self._state == State.IDLE:          self._state_idle()
         elif self._state == State.ARMING:         self._state_arming()
         elif self._state == State.TAKEOFF:        self._state_takeoff()
         elif self._state == State.SURVEY:         self._state_survey()
         elif self._state == State.MATCH_VERIFY:   self._state_match_verify()
+        elif self._state == State.NAV_DEGRADED:   self._state_nav_degraded()
         elif self._state == State.RTL:            self._state_rtl()
         elif self._state == State.LANDING:        self._state_landing()
         elif self._state == State.DOCKING:        self._state_docking()
@@ -501,6 +518,23 @@ class AscendFSMNode(Node):
         msg.data = f'{reason}|{target_state.name}'
         self.pub_failsafe.publish(msg)
         self._transition(target_state)
+
+    def _check_nav_degraded(self):
+        """SLAM-lost hold. If SLAM nav drops out during an autonomous nav state,
+        hold position in LOITER until it recovers, then resume. The
+        ekf_source_manager handles the EKF source switch (SLAM<->optical flow);
+        here we only manage flight behaviour. Battery/link failsafes are checked
+        first and take priority over this."""
+        nav_states = {State.TAKEOFF, State.SURVEY, State.MATCH_VERIFY, State.RTL}
+        if self._slam_ok:
+            return
+        if self._state in nav_states:
+            self._resume_state = self._state
+            self._loiter_sent  = False
+            self.get_logger().warn(
+                f'SLAM nav lost in {self._state.name} — holding (LOITER) until recovery.'
+            )
+            self._transition(State.NAV_DEGRADED)
 
     # ─────────────────────────────────────────
     #  State Handlers
@@ -801,6 +835,24 @@ class AscendFSMNode(Node):
         if current_z < 0.1:
             self._send_disarm_command()
             self.get_logger().error(f'FAILSAFE LANDING COMPLETE. Reason: {self._failsafe_reason}')
+
+    def _state_nav_degraded(self):
+        # SLAM lost: hold position in LOITER (EKF is now on optical flow via the
+        # ekf_source_manager) and wait for SLAM to recover. We deliberately send
+        # NO cmd_vel here so AP holds. On recovery, return to GUIDED and resume
+        # the interrupted state (survey progress / waypoint index is preserved).
+        if not self._loiter_sent:
+            self._ap.set_mode_async(self.LOITER_MODE)
+            self._loiter_sent = True
+            self.get_logger().warn('NAV_DEGRADED: holding in LOITER, waiting for SLAM.')
+            return
+
+        if self._slam_ok:
+            self._ap.set_mode_async(self.GUIDED_MODE)
+            self._loiter_sent = False
+            resume = self._resume_state or State.SURVEY
+            self.get_logger().info(f'SLAM recovered — GUIDED, resuming {resume.name}.')
+            self._transition(resume)
 
     # ─────────────────────────────────────────
     #  Transition Helper

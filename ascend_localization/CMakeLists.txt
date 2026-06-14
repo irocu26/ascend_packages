@@ -358,6 +358,22 @@ install(TARGETS slam_to_ap
   DESTINATION lib/${PROJECT_NAME}
 )
 
+#litski0: ekf_source_manager -- watch SLAM tracking state, switch ArduPilot EKF
+#litski0:   source set (SLAM <-> optical flow) via /ap/joy aux channel, and
+#litski0:   publish /ascend/localization/slam_ok for the FSM. Pure ROS node.
+find_package(std_msgs REQUIRED)
+add_executable(ekf_source_manager
+  src/ekf/ekf_source_manager.cpp
+)
+ament_target_dependencies(ekf_source_manager
+  rclcpp
+  std_msgs
+  sensor_msgs
+)
+install(TARGETS ekf_source_manager
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

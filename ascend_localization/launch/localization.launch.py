@@ -110,6 +110,18 @@ def launch_setup(context, *args, **kwargs):
         parameters=[use_sim_time],
     ))
 
+    # ── EKF source manager ───────────────────────────────────────────────────
+    #    Watches /orbslam/tracking_state, publishes /ascend/localization/slam_ok
+    #    for the FSM, and switches the ArduPilot EKF source set (SLAM <-> optical
+    #    flow) via /ap/joy on the RCx_OPTION=90 aux channel. Target-agnostic.
+    nodes.append(Node(
+        package='ascend_localization',
+        executable='ekf_source_manager',
+        name='ekf_source_manager',
+        output='screen',
+        parameters=[use_sim_time],
+    ))
+
     # ── Static TF base_link -> camera (hw only) ──────────────────────────────
     if p['camera_frame'] is not None:
         nodes.append(Node(
