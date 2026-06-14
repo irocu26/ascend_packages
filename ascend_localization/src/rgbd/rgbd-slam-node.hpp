@@ -20,6 +20,7 @@
 
 #include <nav_msgs/msg/odometry.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <std_msgs/msg/int32.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 
 #include "System.h"
@@ -52,6 +53,10 @@ private:
     // Kept separate from the TF broadcaster: the broadcaster feeds the TF tree/RViz,
     // this topic feeds the ArduPilot relay.
     rclcpp::Publisher<geometry_msgs::msg::TransformStamped>::SharedPtr ap_tf_pub_;
+
+    // ORB-SLAM3 tracking state (2 = OK) so an orchestration script can switch
+    // ALT_HOLD -> GUIDED once tracking is healthy.
+    rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr track_state_pub_;
 
     // TF broadcaster
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;

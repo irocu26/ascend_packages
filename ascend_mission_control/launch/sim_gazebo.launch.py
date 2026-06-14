@@ -58,6 +58,16 @@ def launch_setup(context, *args, **kwargs):
     sim_mode = (target == 'sim')
     use_sim_time = {'use_sim_time': sim_mode}
 
+    # Per-target camera topics for the ArUco detector. The node subscribes to
+    # the fixed names '/camera/image' and '/camera/camera_info'; we remap those
+    # to the sim/hw sources here so the node code stays untouched.
+    if target == 'sim':
+        cam_image_topic = '/rgbd_camera/image'
+        cam_info_topic  = '/rgbd_camera/camera_info'
+    else:  # hw — RealSense D435i color stream
+        cam_image_topic = '/camera/camera/color/image_raw'
+        cam_info_topic  = '/camera/camera/color/camera_info'
+
     # ── ASCEND FSM ────────────────────────────────────────────────────────
     fsm_node = Node(
         package='ascend_mission_control',
@@ -106,7 +116,14 @@ def launch_setup(context, *args, **kwargs):
                 'publish_debug': True,
                 'camera_topic': '/camera/image',
                 'camera_info_topic': '/camera/camera_info',
-            }
+            },
+            use_sim_time,
+        ],
+        # Target-aware camera source — remap the node's fixed topic names to the
+        # sim/hw image + camera_info topics (no node code change required).
+        remappings=[
+            ('/camera/image', cam_image_topic),
+            ('/camera/camera_info', cam_info_topic),
         ]
     )
 
@@ -115,7 +132,7 @@ def launch_setup(context, *args, **kwargs):
         executable='precision_landing_node',
         name='precision_landing_node',
         output='screen',
-        parameters=[params_file]
+        parameters=[params_file, use_sim_time]
     )
 
 
@@ -145,7 +162,13 @@ def launch_setup(context, *args, **kwargs):
     #     ]
     # )
 
-    return [fsm_node, survey_planner_node, monitor_node]
+    return [
+        fsm_node,
+        survey_planner_node,
+        monitor_node,
+        aruco_detector_node,
+        precision_landing_node,
+    ]
 
 
 def generate_launch_description():
@@ -171,12 +194,4 @@ def generate_launch_description():
         LogInfo(msg='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'),
 
         OpaqueFunction(function=launch_setup),
-        fsm_node,
-        survey_planner_node,
-        monitor_node,
-        aruco_detector_node,
-        precision_landing_node,
-
-        # Removed: slam_bridge_node
-        # Removed: TimerAction wrapping slam_bridge_node
     ])

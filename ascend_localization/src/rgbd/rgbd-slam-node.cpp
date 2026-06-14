@@ -27,6 +27,7 @@ RgbdSlamNode::RgbdSlamNode(ORB_SLAM3::System* pSLAM, const std::string& settings
     
     odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("odom", 10);
     ap_tf_pub_ = this->create_publisher<geometry_msgs::msg::TransformStamped>("/orbslam/tf_to_ap", 10);
+    track_state_pub_ = this->create_publisher<std_msgs::msg::Int32>("/orbslam/tracking_state", 10);
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(this);
     syncApproximate = std::make_shared<message_filters::Synchronizer<approximate_sync_policy> >(approximate_sync_policy(10), *rgb_sub, *depth_sub);
     syncApproximate->registerCallback(&RgbdSlamNode::GrabRGBD, this);
@@ -125,6 +126,14 @@ void RgbdSlamNode::GrabRGBD(const ImageMsg::SharedPtr msgRGB, const ImageMsg::Sh
 
      int tracking_state = m_SLAM->GetTrackingState();
      std::cout<<"tracking_state: "<<tracking_state<<std::endl;
+
+    // Publish tracking state every frame (incl. invalid-pose frames below) so an
+    // orchestration script can watch for OK (==2) to switch ALT_HOLD -> GUIDED.
+    {
+        std_msgs::msg::Int32 ts_msg;
+        ts_msg.data = tracking_state;
+        track_state_pub_->publish(ts_msg);
+    }
 
     if (Tcw.matrix().isZero(0)) {
         RCLCPP_WARN(this->get_logger(), "Invalid pose from ORB-SLAM3");
