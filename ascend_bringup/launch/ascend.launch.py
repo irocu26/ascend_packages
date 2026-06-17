@@ -35,6 +35,11 @@ def generate_launch_description():
     target = LaunchConfiguration('target')
     image_topic = LaunchConfiguration('image_topic')
     seed_images_dir = LaunchConfiguration('seed_images_dir')
+    # SIFT matcher tuning — forwarded to vision.launch.py (see its --show-args).
+    process_max_dim = LaunchConfiguration('process_max_dim')
+    min_inliers = LaunchConfiguration('min_inliers')
+    min_match_count = LaunchConfiguration('min_match_count')
+    square_resize = LaunchConfiguration('square_resize')
 
     declare_target = DeclareLaunchArgument(
         'target',
@@ -52,6 +57,27 @@ def generate_launch_description():
         'seed_images_dir',
         default_value=os.path.expanduser('~/ardu_ws/seed_images'),
         description='Directory of seed images to match against.',
+    )
+    declare_process_max_dim = DeclareLaunchArgument(
+        'process_max_dim',
+        default_value='0',
+        description='SIFT scene long-side cap in px. 0 = full native res (#3).',
+    )
+    declare_min_inliers = DeclareLaunchArgument(
+        'min_inliers',
+        default_value='10',
+        description='RANSAC inliers required to accept a SIFT match (#1).',
+    )
+    declare_min_match_count = DeclareLaunchArgument(
+        'min_match_count',
+        default_value='10',
+        description='Ratio-test matches required before RANSAC (#2).',
+    )
+    declare_square_resize = DeclareLaunchArgument(
+        'square_resize',
+        default_value='false',
+        description='Anamorphic squash to square for SIFT (#4). false = '
+                    'aspect-preserving (recommended).',
     )
 
     # ── Localization: ORB-SLAM3 RGBD odometry + ArduPilot relay ─────────────
@@ -94,6 +120,10 @@ def generate_launch_description():
             'target': target,
             'image_topic': image_topic,
             'seed_images_dir': seed_images_dir,
+            'process_max_dim': process_max_dim,
+            'min_inliers': min_inliers,
+            'min_match_count': min_match_count,
+            'square_resize': square_resize,
         }.items(),
     )
 
@@ -101,6 +131,10 @@ def generate_launch_description():
         declare_target,
         declare_image_topic,
         declare_seed_dir,
+        declare_process_max_dim,
+        declare_min_inliers,
+        declare_min_match_count,
+        declare_square_resize,
         localization,
         mission_control,
         vision,

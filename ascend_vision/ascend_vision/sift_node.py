@@ -331,26 +331,53 @@ class SiftMatcherNode(Node):
         # Declare parameters
         self.declare_parameter('seed_images_dir', os.path.expanduser('~/ardu_ws/seed_images'))
         self.declare_parameter('image_topic', '/rgbd_camera/image')
-        self.declare_parameter('min_match_count', 4)
+        # Min ratio-test matches required before we even attempt RANSAC (#2).
+        # Raised from 4 — the bare minimum for a homography, with zero
+        # outlier-rejection headroom — to the standard 10. Keep this >=
+        # min_inliers below: you can't get more inliers than total good matches.
+        self.declare_parameter('min_match_count', 10)
+        # Geometric-verification gate (#1): a seed is accepted ONLY if its
+        # ratio-test matches fit a single homography with at least this many
+        # RANSAC inliers. Raw ratio-test count alone is not enough — a few
+        # geometrically-inconsistent matches can pass the ratio test.
+        self.declare_parameter('min_inliers', 10)
         self.declare_parameter('use_pysift', False)
         # How long (s) to suppress re-publishing the SAME seed_id as a match.
         self.declare_parameter('match_debounce_s', 5.0)
         # match_result topic the FSM listens on (String JSON fallback).
         self.declare_parameter('match_result_topic', '/ascend/vision/match_result_str')
-        # Downsample seeds and incoming frames so the long side is at most this
-        # many pixels before running SIFT. Aspect ratio is preserved. Smaller =
-        # faster but fewer/less-distinctive keypoints. 0 disables downsampling.
-        self.declare_parameter('process_max_dim', 256)
+        # Optional SPEED cap: shrink the scene so its long side is at most this
+        # many pixels before SIFT (aspect preserved). 0 = OFF = full native
+        # resolution, which is the DEFAULT (#3). Do NOT shrink the scene down to
+        # ~the seed size: the feature is a small fraction of the frame, so
+        # downsampling the whole frame collapses a ~64px feature to ~6-13px and
+        # SIFT can no longer match it. Only set a cap once you've confirmed the
+        # feature still spans >~40px after it (watch the sift_matches box size
+        # and the per-frame keypoint counts).
+        self.declare_parameter('process_max_dim', 0)
+        # Resize convention (#4). SIFT descriptors are NOT invariant to
+        # anisotropic (non-uniform) scaling, so the seed and the scene MUST be
+        # resized the same way the 128x128 references were generated:
+        #   False (default) = aspect-preserving uniform scale (no distortion).
+        #     Use when the references are undistorted feature crops.
+        #   True = anamorphic squash to a square (e.g. 1280x720 -> NxN), i.e. the
+        #     booklet's literal "1280x720 -> 128x128". WARNING: squashing the
+        #     whole frame also shrinks a small feature into oblivion (see #3), so
+        #     this is only valid when the feature fills the frame.
+        # Either way the SAME transform is applied to seeds and scene.
+        self.declare_parameter('square_resize', False)
         # Debug topic carrying the downsampled image SIFT actually sees.
         self.declare_parameter('debug_image_topic', 'sift_downsampled')
 
         seed_dir = self.get_parameter('seed_images_dir').value
         image_topic = self.get_parameter('image_topic').value
         self.MIN_MATCH_COUNT = self.get_parameter('min_match_count').value
+        self.min_inliers = self.get_parameter('min_inliers').value
         use_pysift = self.get_parameter('use_pysift').value
         self.match_debounce_s = self.get_parameter('match_debounce_s').value
         match_result_topic = self.get_parameter('match_result_topic').value
         self.process_max_dim = self.get_parameter('process_max_dim').value
+        self.square_resize = self.get_parameter('square_resize').value
         debug_image_topic = self.get_parameter('debug_image_topic').value
 
         # Debounce bookkeeping: seed_id -> last publish wall-clock time
@@ -394,9 +421,24 @@ class SiftMatcherNode(Node):
 
         # Debug stream: the downsampled image SIFT runs on.
         self.debug_pub = self.create_publisher(Image, debug_image_topic, 10)
+        if self.square_resize:
+            _sq = self.process_max_dim if (self.process_max_dim and self.process_max_dim > 0) else 128
+            _res_desc = f"anamorphic squash to {_sq}x{_sq} (square_resize)"
+            self.get_logger().warn(
+                "square_resize=True: the whole frame is squashed to a square, "
+                "which shrinks small features into oblivion (#3). Only use this "
+                "if the feature fills the frame AND your references were squashed "
+                "from 1280x720 the same way."
+            )
+        else:
+            _res_desc = (
+                f"capped to {self.process_max_dim}px long-side"
+                if self.process_max_dim and self.process_max_dim > 0
+                else "full native resolution"
+            )
         self.get_logger().info(
-            f"Processing at max dim {self.process_max_dim}px; "
-            f"publishing downsampled debug image to: {debug_image_topic}"
+            f"Scene processed at {_res_desc}; "
+            f"debug image (what SIFT sees) on: {debug_image_topic}"
         )
 
         # Initialize FLANN matcher
@@ -411,24 +453,36 @@ class SiftMatcherNode(Node):
         self.get_logger().info("SIFT Matcher Node initialized and ready.")
 
     def _downsample(self, img):
-        """Resize so the long side is at most process_max_dim, preserving aspect.
+        """Resize an image for SIFT, returning (resized, sx, sy).
 
-        Returns (resized_img, scale) where scale = resized / original (<= 1.0).
-        Multiply resized-image coordinates by 1/scale to map back to original.
-        INTER_AREA is used because it area-averages, which avoids aliasing when
-        shrinking. No-op (scale 1.0) if downsampling is disabled or not needed.
+        sx, sy = resized/original per axis; multiply resized coords by
+        (1/sx, 1/sy) to map back to the original. In the default uniform
+        (aspect-preserving) mode sx == sy. INTER_AREA area-averages, which
+        avoids aliasing when shrinking.
+
+        square_resize=True does an anamorphic squash to a square target
+        (process_max_dim, or 128 if that's 0), replicating the booklet's literal
+        1280x720 -> 128x128 so the scene is distorted the same way as squashed
+        references (#4). sx != sy in that case.
         """
-        if not self.process_max_dim or self.process_max_dim <= 0:
-            return img, 1.0
         h, w = img.shape[:2]
+
+        if self.square_resize:
+            target = self.process_max_dim if (self.process_max_dim and self.process_max_dim > 0) else 128
+            resized = cv2.resize(img, (target, target), interpolation=cv2.INTER_AREA)
+            return resized, target / float(w), target / float(h)
+
+        # Uniform, aspect-preserving (default).
+        if not self.process_max_dim or self.process_max_dim <= 0:
+            return img, 1.0, 1.0
         long_side = max(h, w)
         if long_side <= self.process_max_dim:
-            return img, 1.0
+            return img, 1.0, 1.0
         scale = self.process_max_dim / float(long_side)
         new_w = max(1, int(round(w * scale)))
         new_h = max(1, int(round(h * scale)))
         resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-        return resized, scale
+        return resized, scale, scale
 
     def compute_sift(self, gray_image):
         """Compute SIFT keypoints and descriptors using the chosen backend."""
@@ -459,11 +513,14 @@ class SiftMatcherNode(Node):
                 self.get_logger().warn(f"Failed to load image: {filepath}")
                 continue
 
-            # Downsample seeds to the same scale the scene will be matched at,
-            # otherwise SIFT matches full-res seeds against a small scene and the
-            # scale gap breaks the ratio test. Seed keypoints and img.shape stay
-            # consistent in this downsampled space, so the scale factor is unused.
-            img, _ = self._downsample(img)
+            # Keep seeds at their native (low) resolution: a 128x128 LR
+            # reference stays 128x128, so the feature's scale in the seed
+            # (~the whole image) is comparable to its scale in the full-res
+            # scene (a small patch). With process_max_dim=0 (default) this is a
+            # no-op. Provide seeds at the scale the feature appears — NOT
+            # full-frame HD photos, which won't scale-match the small scene
+            # feature.
+            img, _, _ = self._downsample(img)
 
             self.get_logger().info(f"Computing SIFT for {filepath}...")
             t0 = time.time()
@@ -523,9 +580,9 @@ class SiftMatcherNode(Node):
 
         gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
 
-        # Downsample before SIFT. scene_scale maps small-image coords back to the
-        # full-res frame (multiply by 1/scene_scale) so the overlay lands right.
-        gray, scene_scale = self._downsample(gray)
+        # Downsample before SIFT. (scene_sx, scene_sy) map processed-image coords
+        # back to the full-res frame (divide by them) so the overlay lands right.
+        gray, scene_sx, scene_sy = self._downsample(gray)
 
         # Publish the downsampled image SIFT actually sees (debug stream).
         try:
@@ -581,6 +638,15 @@ class SiftMatcherNode(Node):
         # Draw result
         result_img = cv_image.copy()
 
+        # ── Geometric verification gates the match (#1) ─────────────────────
+        # Ratio-test matches alone are NOT enough: a handful of geometrically
+        # inconsistent matches can pass the ratio test and fire a false match.
+        # Accept a seed only if its matches fit ONE homography with enough
+        # RANSAC inliers. The homography + inlier count is the accept/reject
+        # gate now, not just a drawing aid.
+        match_accepted = False
+        n_inliers = 0
+
         if best_match_seed and len(best_match_good) >= self.MIN_MATCH_COUNT:
             seed_img = best_match_seed['img']
             kp_seed = best_match_seed['kp']
@@ -593,8 +659,11 @@ class SiftMatcherNode(Node):
             ).reshape(-1, 1, 2)
 
             M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+            n_inliers = int(mask.sum()) if mask is not None else 0
 
-            if M is not None:
+            if M is not None and n_inliers >= self.min_inliers:
+                match_accepted = True
+
                 h, w = seed_img.shape
                 pts = np.float32([
                     [0, 0], [0, h - 1],
@@ -602,10 +671,11 @@ class SiftMatcherNode(Node):
                 ]).reshape(-1, 1, 2)
                 dst = cv2.perspectiveTransform(pts, M)
 
-                # Homography is in downsampled-scene coords; scale corners back
-                # up so the box lands on the full-res frame we draw on.
-                if scene_scale != 1.0:
-                    dst = dst / scene_scale
+                # Homography is in processed-scene coords; scale corners back up
+                # (per-axis, since square_resize is anamorphic) so the box lands
+                # on the full-res frame we draw on.
+                if scene_sx != 1.0 or scene_sy != 1.0:
+                    dst = dst / np.array([scene_sx, scene_sy], dtype=np.float32)
 
                 result_img = cv2.polylines(
                     result_img, [np.int32(dst)], True,
@@ -613,27 +683,31 @@ class SiftMatcherNode(Node):
                 )
                 cv2.putText(
                     result_img,
-                    f"MATCH: {best_match_name} ({len(best_match_good)} pts)",
+                    f"MATCH: {best_match_name} ({n_inliers} inliers)",
                     (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2
                 )
 
+        if match_accepted:
             self.get_logger().info(
                 f"MATCH FOUND: {best_match_name} "
-                f"({len(best_match_good)} good matches)",
+                f"({n_inliers} RANSAC inliers / {len(best_match_good)} good)",
                 throttle_duration_sec=1.0
             )
-
             # Tell the FSM about the match (debounced per seed_id).
-            self._publish_match(best_match_seed, len(best_match_good))
+            self._publish_match(best_match_seed, n_inliers)
         else:
             n_good = len(best_match_good) if best_match_good else 0
+            if n_good >= self.MIN_MATCH_COUNT:
+                reason = f"{n_inliers} inliers < {self.min_inliers}"   # geometry rejected
+            else:
+                reason = f"{n_good}/{self.MIN_MATCH_COUNT} good matches"
             cv2.putText(
                 result_img,
-                f"No match (best: {n_good}/{self.MIN_MATCH_COUNT})",
+                f"No match ({reason})",
                 (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2
             )
             self.get_logger().info(
-                f"No match (best: {n_good}/{self.MIN_MATCH_COUNT} needed)",
+                f"No match ({reason})",
                 throttle_duration_sec=2.0
             )
 
@@ -643,7 +717,7 @@ class SiftMatcherNode(Node):
         except Exception as e:
             self.get_logger().error(f"Publish error: {e}")
 
-    def _publish_match(self, seed, n_good):
+    def _publish_match(self, seed, n_inliers):
         """Publish a structured match result to the FSM, debounced per seed_id.
 
         FSM expects std_msgs/String JSON: {seed_id, confidence, hd_path}.
@@ -655,9 +729,10 @@ class SiftMatcherNode(Node):
             return  # suppress repeated publishes of the same seed
         self._last_pub_time[seed_id] = now
 
-        # Confidence heuristic: scale good-match count toward 1.0. At 3x the
-        # minimum threshold we call it fully confident.
-        confidence = max(0.0, min(1.0, n_good / float(3 * self.MIN_MATCH_COUNT)))
+        # Confidence from RANSAC inliers (geometric verification already passed
+        # to get here). Fully confident at 2x the acceptance threshold.
+        denom = float(max(1, 2 * self.min_inliers))
+        confidence = max(0.0, min(1.0, n_inliers / denom))
 
         payload = {
             'seed_id':    int(seed_id),
