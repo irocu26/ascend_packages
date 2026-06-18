@@ -26,6 +26,12 @@ IMAGE_TOPIC = {
     'hw': '/camera/camera/color/image_raw',
 }
 
+# Matching CameraInfo per target, for the feature back-projection (#5).
+CAMERA_INFO_TOPIC = {
+    'sim': '/rgbd_camera/camera_info',
+    'hw': '/camera/camera/color/camera_info',
+}
+
 
 def launch_setup(context, *args, **kwargs):
     target = LaunchConfiguration('target').perform(context)
@@ -37,6 +43,7 @@ def launch_setup(context, *args, **kwargs):
     image_topic = LaunchConfiguration('image_topic').perform(context)
     if not image_topic:
         image_topic = IMAGE_TOPIC[target]
+    camera_info_topic = CAMERA_INFO_TOPIC[target]
 
     # SIFT tuning knobs. Launch args arrive as strings; cast to int so the node
     # receives the integer types it declares (a string param would break the
@@ -54,6 +61,7 @@ def launch_setup(context, *args, **kwargs):
         output='screen',
         parameters=[{
             'image_topic': image_topic,
+            'camera_info_topic': camera_info_topic,
             'seed_images_dir': LaunchConfiguration('seed_images_dir'),
             'process_max_dim': process_max_dim,
             'min_inliers': min_inliers,

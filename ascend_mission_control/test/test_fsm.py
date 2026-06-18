@@ -100,6 +100,15 @@ def _pose(x, y, z):
     )
 
 
+def _pose_yaw(x, y, z, yaw):
+    """PoseStamped stand-in with a yaw quaternion (about +z)."""
+    return SimpleNamespace(pose=SimpleNamespace(
+        position=SimpleNamespace(x=x, y=y, z=z),
+        orientation=SimpleNamespace(
+            x=0.0, y=0.0, z=math.sin(yaw / 2.0), w=math.cos(yaw / 2.0)),
+    ))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  Fixtures
 # ─────────────────────────────────────────────────────────────────────────────
@@ -307,6 +316,30 @@ def test_match_confirm_logs_held_position(node):
     feat = node._features_found[0]
     assert feat['x'] == 4.2 and feat['y'] == 1.1   # logged the HOLD, not drift
     assert node._match_hold is None
+
+
+def test_match_confirm_backprojects_bearing_to_arena_coord(node):
+    """#5: with a feature bearing + altitude + yaw, the logged coordinate is the
+    back-projected feature position, not just the drone position."""
+    State = _State(node)
+    node._state = State.MATCH_VERIFY
+    node._features_found = []
+    # Drone holding at (5,5), 4 m up, facing +x (yaw 0).
+    node._match_hold = (5.0, 5.0, 4.0)
+    node._ap_pose = _pose_yaw(5.0, 5.0, 4.0, 0.0)
+    # Default camera_to_body_rotation = identity (RDF camera == FRD body):
+    #   fwd = alt*tan(angle_x), right = alt*tan(angle_y).
+    ax = math.atan(0.5)     # fwd   = 4 * 0.5  = 2.0 m
+    ay = math.atan(0.25)    # right = 4 * 0.25 = 1.0 m
+    node._pending_match = {'seed_id': 7, 'confidence': 0.9, 'hd_path': '',
+                           'angle_x': ax, 'angle_y': ay}
+    node._state_entry_time = node.get_clock().now()
+
+    node._confirm_match()
+    feat = node._features_found[0]
+    # yaw 0: x = base_x + fwd, y = base_y - right
+    assert abs(feat['x'] - 7.0) < 0.05   # 5 + 2
+    assert abs(feat['y'] - 4.0) < 0.05   # 5 - 1
 
 
 # ─────────────────────────────────────────────────────────────────────────────

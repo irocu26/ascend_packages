@@ -38,6 +38,20 @@ ascend_fsm_node:
     link_timeout_s:        3.0      # Seconds without pose → lost-link failsafe
     battery_timeout_s:     5.0      # Seconds without battery telemetry → failsafe RTL
 
+    # ── Camera mount ───────────────────────────────────────────────────────
+    # Camera->body rotation for feature back-projection, as a flat row-major
+    # 3x3 matrix. Maps the camera optical ray (RDF: x-right, y-down, z-forward)
+    # into the Pixhawk body frame (FRD: x-forward, y-right, z-down).
+    # Default below = IDENTITY: camera +x/+y/+z aligned with body +x/+y/+z
+    # (down-facing mount, camera RDF axes coincident with body FRD axes).
+    # Change ONLY this to re-orient the camera — no code edits needed.
+    # Examples:
+    #   identity (camera RDF == body FRD):   [1,0,0, 0,1,0, 0,0,1]
+    #   image-right -> body-right (swap fwd/right): [0,1,0, 1,0,0, 0,0,1]
+    camera_to_body_rotation: [1.0, 0.0, 0.0,
+                              0.0, 1.0, 0.0,
+                              0.0, 0.0, 1.0]
+
     # ── Mode ───────────────────────────────────────────────────────────────
     sim_mode:              true     # Set false for real hardware
 

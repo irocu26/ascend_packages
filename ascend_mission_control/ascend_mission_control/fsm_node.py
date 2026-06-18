@@ -255,6 +255,16 @@ class AscendFSMNode(Node):
         self.declare_parameter('transfer_timeout_s', self.TRANSFER_TIMEOUT_S)
         self.declare_parameter('link_timeout_s',     self.LINK_TIMEOUT_S)
         self.declare_parameter('battery_timeout_s',  self.BATTERY_TIMEOUT_S)
+        # Camera->body rotation for feature back-projection (#5), as a flat
+        # row-major 3x3. Maps the camera optical ray (RDF: x-right, y-down,
+        # z-forward) into the Pixhawk body frame (FRD: x-forward, y-right,
+        # z-down). Default = identity: camera +x/+y/+z aligned with body
+        # +x/+y/+z (down-facing mount). Edit this in mission_params.yaml to
+        # re-orient the camera WITHOUT touching code.
+        self.declare_parameter(
+            'camera_to_body_rotation',
+            [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        )
 
         self.survey_alt      = self.get_parameter('survey_altitude').value
         self.wp_radius       = self.get_parameter('wp_accept_radius').value
@@ -277,6 +287,14 @@ class AscendFSMNode(Node):
         self.transfer_timeout_s = self.get_parameter('transfer_timeout_s').value
         self.link_timeout_s     = self.get_parameter('link_timeout_s').value
         self.battery_timeout_s  = self.get_parameter('battery_timeout_s').value
+        _R = list(self.get_parameter('camera_to_body_rotation').value or [])
+        if len(_R) != 9:
+            self.get_logger().warn(
+                f'camera_to_body_rotation needs 9 values, got {len(_R)} — '
+                'falling back to identity.'
+            )
+            _R = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+        self._cam_to_body_R = [list(_R[0:3]), list(_R[3:6]), list(_R[6:9])]
 
         # ── Internal state ───────────────────
         self._state              = State.IDLE
@@ -813,17 +831,60 @@ class AscendFSMNode(Node):
         if self._elapsed_in_state() >= self.match_hover_s:
             self._confirm_match()
 
+    def _yaw_from_pose(self, pose):
+        """Yaw in radians (about +z) from a PoseStamped quaternion; 0 if None."""
+        if pose is None:
+            return 0.0
+        q = pose.pose.orientation
+        siny = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        return math.atan2(siny, cosy)
+
     def _confirm_match(self):
         if self._pending_match is None:
             return
-        # Log where the feature was seen (the held position), not a fresh read
-        # taken MATCH_HOVER_S later.
+        # Base = where the drone was when the feature was seen (held position),
+        # not a fresh read taken MATCH_HOVER_S later.
         if self._match_hold is not None:
-            x, y, _z = self._match_hold
+            base_x, base_y, alt = self._match_hold
         else:
             pose = self._ap_pose
-            x = pose.pose.position.x if pose else 0.0
-            y = pose.pose.position.y if pose else 0.0
+            base_x = pose.pose.position.x if pose else 0.0
+            base_y = pose.pose.position.y if pose else 0.0
+            alt = pose.pose.position.z if pose else 0.0
+        x, y = base_x, base_y
+
+        # Back-project the feature's bearing to an arena coordinate (#5).
+        # The vision node reports angle_x (+right) / angle_y (+down), so the
+        # camera optical ray (RDF: x-right, y-down, z-forward) is
+        # (tan ax, tan ay, 1). Rotate it into the FRD body frame with the
+        # configurable camera_to_body_rotation, intersect the ground plane
+        # (body +z = down, depth = alt), then rotate the body (forward, right)
+        # offset into the world (map ENU) frame by the drone yaw and add it to
+        # the drone position — so we log WHERE the feature is, not just where
+        # the drone was (which can be off by up to half the camera footprint).
+        # ASSUMES roughly level flight and /ap/pose/filtered in map ENU, yaw CCW
+        # from +x. VERIFY in sim over a known feature; if the coordinate is
+        # mirrored/rotated, fix the camera_to_body_rotation in the yaml.
+        ax = self._pending_match.get('angle_x')
+        ay = self._pending_match.get('angle_y')
+        if ax is not None and ay is not None and alt and alt > 0.1:
+            ray = (math.tan(float(ax)), math.tan(float(ay)), 1.0)  # camera RDF
+            R = self._cam_to_body_R
+            bx = R[0][0] * ray[0] + R[0][1] * ray[1] + R[0][2] * ray[2]  # forward
+            by = R[1][0] * ray[0] + R[1][1] * ray[1] + R[1][2] * ray[2]  # right
+            bz = R[2][0] * ray[0] + R[2][1] * ray[1] + R[2][2] * ray[2]  # down
+            if bz > 1e-6:                       # ray must point at the ground
+                s = alt / bz                    # scale to the ground plane
+                fwd, right = bx * s, by * s
+                yaw = self._yaw_from_pose(self._ap_pose)
+                x = base_x + fwd * math.cos(yaw) + right * math.sin(yaw)
+                y = base_y + fwd * math.sin(yaw) - right * math.cos(yaw)
+                self.get_logger().info(
+                    f'Feature back-projected: drone=({base_x:.2f},{base_y:.2f}) '
+                    f'fwd={fwd:+.2f} right={right:+.2f} '
+                    f'yaw={math.degrees(yaw):.0f}deg -> feature=({x:.2f},{y:.2f})m'
+                )
 
         feature = {
             'seed_id':    self._pending_match['seed_id'],
