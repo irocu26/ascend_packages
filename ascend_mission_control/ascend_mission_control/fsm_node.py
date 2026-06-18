@@ -22,10 +22,13 @@ CHANGES FROM ORIGINAL:
   7. Added 'max_sorties' and 'critical_battery_pct' declare_parameter calls.
 
 Topics consumed:
-  /ascend/localization/pose          (geometry_msgs/PoseStamped)  — from slam_bridge_node
   /ascend/vision/match_result        (ascend_msgs/MatchResult)    — from matcher_node
   /ap/battery_status                 (sensor_msgs/BatteryState)   — from ArduPilot uXRCE-DDS
-  /ap/pose/filtered                  (geometry_msgs/PoseStamped)  — from ArduPilot uXRCE-DDS
+  /ap/pose/filtered                  (geometry_msgs/PoseStamped)  — fused EKF pose from
+                                       ArduPilot uXRCE-DDS; SOLE position source for the FSM
+                                       (already reflects the active EKF source set, so the raw
+                                       SLAM pose is NOT consumed here — it feeds the EKF as
+                                       EK3_SRC1 external nav)
   /ascend/mission_control/start_cmd  (std_msgs/Empty)             — single start trigger
   /ascend/ground_station/charge_done (std_msgs/Bool)              — charging complete signal
   /ascend/ground_station/transfer_done (std_msgs/Bool)            — data transfer complete
@@ -51,8 +54,13 @@ from std_msgs.msg import String, Empty, Bool
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from sensor_msgs.msg import BatteryState
 
-# CHANGE 1: Import APInterface (replaces sim stubs in _send_arm_command)
-from .ap_interface import APInterface
+# CHANGE 1: Import APInterface (replaces sim stubs in _send_arm_command).
+# Guarded so the pure-logic classes (State, LawnmowerPattern) stay importable
+# for unit tests even when ardupilot_msgs isn't built; the node needs it at run.
+try:
+    from .ap_interface import APInterface
+except ImportError:
+    APInterface = None
 
 # Custom messages — defined in ascend_msgs package
 # Falls back to String JSON if ascend_msgs not yet built
@@ -202,6 +210,7 @@ class AscendFSMNode(Node):
     LOW_BATTERY_PCT         = 20.0
     CRITICAL_BATTERY_PCT    = 10.0
     LINK_TIMEOUT_S          = 3.0
+    BATTERY_TIMEOUT_S       = 5.0     # max gap in battery telemetry before failsafe
     DOCK_TARGET_X           = 0.0
     DOCK_TARGET_Y           = 0.0
     DOCK_TARGET_Z           = 0.0
@@ -210,9 +219,12 @@ class AscendFSMNode(Node):
     CHARGE_TIMEOUT_S        = 300.0
     TRANSFER_TIMEOUT_S      = 60.0
     ARMING_TIMEOUT_S        = 10.0
+    TAKEOFF_TIMEOUT_S       = 20.0    # max climb-to-altitude time before abort
+    LANDING_TIMEOUT_S       = 60.0    # max precision-landing time before blind-land fallback
     # ArduCopter flight-mode numbers
     GUIDED_MODE             = 4
     LOITER_MODE             = 5
+    LAND_MODE               = 9
 
     def __init__(self):
         super().__init__('ascend_fsm_node')
@@ -232,6 +244,27 @@ class AscendFSMNode(Node):
         self.declare_parameter('survey_strip_spacing',  1.0)   # m between rows
         self.declare_parameter('survey_speed',          0.4)   # m/s horizontal
         self.declare_parameter('row_step',              1.0)   # m between in-row points
+        # Timing / timeout knobs — previously class constants only, so the
+        # matching mission_params.yaml entries were silently ignored at runtime.
+        self.declare_parameter('hover_dwell_s',      self.HOVER_DWELL_S)
+        self.declare_parameter('match_hover_s',      self.MATCH_HOVER_S)
+        self.declare_parameter('arming_timeout_s',   self.ARMING_TIMEOUT_S)
+        self.declare_parameter('takeoff_timeout_s',  self.TAKEOFF_TIMEOUT_S)
+        self.declare_parameter('landing_timeout_s',  self.LANDING_TIMEOUT_S)
+        self.declare_parameter('charge_timeout_s',   self.CHARGE_TIMEOUT_S)
+        self.declare_parameter('transfer_timeout_s', self.TRANSFER_TIMEOUT_S)
+        self.declare_parameter('link_timeout_s',     self.LINK_TIMEOUT_S)
+        self.declare_parameter('battery_timeout_s',  self.BATTERY_TIMEOUT_S)
+        # Camera->body rotation for feature back-projection (#5), as a flat
+        # row-major 3x3. Maps the camera optical ray (RDF: x-right, y-down,
+        # z-forward) into the Pixhawk body frame (FRD: x-forward, y-right,
+        # z-down). Default = identity: camera +x/+y/+z aligned with body
+        # +x/+y/+z (down-facing mount). Edit this in mission_params.yaml to
+        # re-orient the camera WITHOUT touching code.
+        self.declare_parameter(
+            'camera_to_body_rotation',
+            [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        )
 
         self.survey_alt      = self.get_parameter('survey_altitude').value
         self.wp_radius       = self.get_parameter('wp_accept_radius').value
@@ -245,13 +278,39 @@ class AscendFSMNode(Node):
         self.strip_spacing   = self.get_parameter('survey_strip_spacing').value
         self.survey_speed    = self.get_parameter('survey_speed').value
         self.row_step        = self.get_parameter('row_step').value
+        self.hover_dwell_s      = self.get_parameter('hover_dwell_s').value
+        self.match_hover_s      = self.get_parameter('match_hover_s').value
+        self.arming_timeout_s   = self.get_parameter('arming_timeout_s').value
+        self.takeoff_timeout_s  = self.get_parameter('takeoff_timeout_s').value
+        self.landing_timeout_s  = self.get_parameter('landing_timeout_s').value
+        self.charge_timeout_s   = self.get_parameter('charge_timeout_s').value
+        self.transfer_timeout_s = self.get_parameter('transfer_timeout_s').value
+        self.link_timeout_s     = self.get_parameter('link_timeout_s').value
+        self.battery_timeout_s  = self.get_parameter('battery_timeout_s').value
+        _R = list(self.get_parameter('camera_to_body_rotation').value or [])
+        if len(_R) != 9:
+            self.get_logger().warn(
+                f'camera_to_body_rotation needs 9 values, got {len(_R)} — '
+                'falling back to identity.'
+            )
+            _R = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+        self._cam_to_body_R = [list(_R[0:3]), list(_R[3:6]), list(_R[6:9])]
 
         # ── Internal state ───────────────────
         self._state              = State.IDLE
         self._prev_state         = None
-        self._current_pose       = None
+        # Single source of truth for vehicle position: ArduPilot's fused EKF
+        # output (/ap/pose/filtered). It already reflects whichever EKF source
+        # set the ekf_source_manager has selected — SLAM external nav (EK3_SRC1)
+        # when tracking is healthy, optical flow + rangefinder (EK3_SRC2) when
+        # SLAM is lost. The FSM must NOT also consume the raw SLAM pose: that is
+        # a redundant EKF input which goes stale exactly when AP has switched
+        # away from it, which would drive the velocity controller off a frozen
+        # position (flyaway).
         self._ap_pose            = None
         self._battery_pct        = 100.0
+        self._battery_valid      = False  # True once a real (non-NaN) reading arrives
+        self._last_battery_time  = None   # freshness of battery telemetry
         self._last_pose_time     = None
         self._state_entry_time   = None
         self._start_cmd_received = False
@@ -259,11 +318,15 @@ class AscendFSMNode(Node):
         self._sorties_done       = 0
         self._features_found     = []
         self._pending_match      = None
+        self._match_hold         = None   # (x,y,z) held over the feature in MATCH_VERIFY
         self._charging_done      = False
         self._transfer_done      = False
         self._charge_triggered   = False
         self._transfer_triggered = False
         self._failsafe_reason    = ''
+        self._failsafe_landed         = False  # FAILSAFE_LAND terminal latch
+        self._failsafe_land_confirmed = False  # AP LAND mode switch confirmed
+        self._failsafe_land_future    = None   # pending LAND mode-switch future
         # CHANGE 6: track whether AP services are ready
         self._ap_services_ready  = False
         self._mode_future        = None   # pending async mode-switch future
@@ -287,6 +350,10 @@ class AscendFSMNode(Node):
             step_along_row_m=self.row_step,
         )
         self._current_wp = None
+        # Wall-clock arrival time at the current survey waypoint, for the
+        # per-waypoint hover dwell. None = not yet settled within wp_radius.
+        # (Deliberately NOT _elapsed_in_state — see _state_survey.)
+        self._wp_arrival_time = None
         self.get_logger().info(
             f'Survey pattern: {self._pattern.total_waypoints()} waypoints, '
             f'strip spacing {self.strip_spacing}m, speed {self.survey_speed}m/s'
@@ -308,9 +375,9 @@ class AscendFSMNode(Node):
         )
 
         # ── Subscribers ──────────────────────
-        self.sub_pose = self.create_subscription(
-            PoseStamped, '/ascend/localization/pose', self._cb_pose, sensor_qos
-        )
+        # Position comes solely from AP's fused EKF estimate. The raw SLAM pose
+        # (/ascend/localization/pose) is an INPUT to that EKF (EK3_SRC1 external
+        # nav), not a separate nav source for the FSM — see _ap_pose above.
         self.sub_ap_pose = self.create_subscription(
             PoseStamped, '/ap/pose/filtered', self._cb_ap_pose, sensor_qos
         )
@@ -377,20 +444,23 @@ class AscendFSMNode(Node):
     #  Callbacks
     # ─────────────────────────────────────────
 
-    def _cb_pose(self, msg: PoseStamped):
-        self._current_pose  = msg
-        self._last_pose_time = self.get_clock().now()
-
     def _cb_ap_pose(self, msg: PoseStamped):
+        # The fused EKF pose is the FSM's only position source AND its
+        # link-liveness signal. Update the timestamp on EVERY message so the
+        # lost-link failsafe tracks the topic we actually navigate on (it keeps
+        # flowing even when SLAM drops and AP falls back to optical flow).
         self._ap_pose = msg
-        # AP pose keeps the link-timeout fresh when SLAM is not running.
-        # Must update on EVERY message, not just the first — otherwise the
-        # timestamp goes stale and the lost-link failsafe fires falsely.
         self._last_pose_time = self.get_clock().now()
 
     def _cb_battery(self, msg: BatteryState):
+        # AP_DDS publishes percentage as a 0..1 fraction, or NaN when no battery
+        # monitor is configured (e.g. bare SITL). The >= 0.0 test rejects both
+        # NaN (NaN >= 0 is False) and negatives, so only a real reading updates
+        # the level — and the freshness stamp that gates the battery failsafe.
         if msg.percentage >= 0.0:
-            self._battery_pct = msg.percentage * 100.0
+            self._battery_pct       = msg.percentage * 100.0
+            self._battery_valid     = True
+            self._last_battery_time = self.get_clock().now()
 
     def _cb_start(self, _msg: Empty):
         if self._state != State.IDLE:
@@ -491,21 +561,38 @@ class AscendFSMNode(Node):
         if self._state in safe_states:
             return
 
-        # 1. Critical battery → land immediately
-        if self._battery_pct < self.crit_bat_pct:
-            self._trigger_failsafe('CRITICAL_BATTERY', State.FAILSAFE_LAND)
-            return
-
-        # 2. Low battery → RTL
-        if self._battery_pct < self.low_bat_pct:
-            self._trigger_failsafe('LOW_BATTERY', State.FAILSAFE_RTL)
-            return
+        # Battery — only meaningful once AP has sent a real reading. AP_DDS sends
+        # NaN when no monitor is configured, so a phantom default 100% must NOT
+        # be used to clear the failsafe (the old default hid a dead/absent pack).
+        if self._battery_valid:
+            # Telemetry went stale mid-flight → lost a safety-critical sensor.
+            dt_batt = (self.get_clock().now() - self._last_battery_time).nanoseconds / 1e9
+            if dt_batt > self.battery_timeout_s:
+                self._trigger_failsafe(
+                    f'BATTERY_TELEMETRY_LOST ({dt_batt:.1f}s)', State.FAILSAFE_RTL
+                )
+                return
+            # 1. Critical battery → land immediately
+            if self._battery_pct < self.crit_bat_pct:
+                self._trigger_failsafe('CRITICAL_BATTERY', State.FAILSAFE_LAND)
+                return
+            # 2. Low battery → RTL
+            if self._battery_pct < self.low_bat_pct:
+                self._trigger_failsafe('LOW_BATTERY', State.FAILSAFE_RTL)
+                return
+        else:
+            # Never received a valid reading — the battery failsafe is disabled.
+            # Surface it loudly rather than let it be a silent safety gap.
+            self.get_logger().warn(
+                'No valid battery telemetry — battery failsafe disabled.',
+                throttle_duration_sec=10.0
+            )
 
         # 3. Lost link — CHANGE 5: only after mission has started and pose was
         #    received at least once (prevents failsafe before SLAM connects)
         if self._last_pose_time is not None:
             dt = (self.get_clock().now() - self._last_pose_time).nanoseconds / 1e9
-            if dt > self.LINK_TIMEOUT_S:
+            if dt > self.link_timeout_s:
                 self._trigger_failsafe(f'LOST_LINK ({dt:.1f}s no pose)', State.FAILSAFE_RTL)
                 return
 
@@ -546,6 +633,25 @@ class AscendFSMNode(Node):
     def _state_arming(self):
         elapsed = self._elapsed_in_state()
 
+        # Abort guard — checked on EVERY tick, BEFORE the phase branches below.
+        # Each of those branches returns early, so a timeout placed after them is
+        # unreachable. This bounds the whole ARMING state: services that never
+        # appear, a GUIDED switch AP keeps refusing, or an arm it keeps rejecting
+        # (failed pre-arm checks) would otherwise loop forever — and ARMING is in
+        # safe_states, so no failsafe would rescue it. On timeout we fall back to
+        # IDLE and re-arm the start trigger so the operator can just start again.
+        if elapsed > self.arming_timeout_s:
+            self.get_logger().error(
+                f'Arming did not complete within {self.arming_timeout_s:.0f}s '
+                f'(stuck at step {self._arming_step}) — aborting to IDLE.'
+            )
+            self._mode_future        = None
+            self._arm_future         = None
+            self._arming_step        = 0
+            self._start_cmd_received = False  # allow a fresh start command
+            self._transition(State.IDLE)
+            return
+
         # Wait for AP services to be ready
         if not self._ap_services_ready:
             if self._ap.is_service_ready():
@@ -562,37 +668,65 @@ class AscendFSMNode(Node):
                 self._mode_future = self._ap.set_mode_async(4)
                 return
             if self._mode_future.done():
-                if self._mode_future.result() is not None:
+                resp = self._mode_future.result()
+                # ModeSwitch.Response carries `bool status`. A completed call only
+                # means AP answered — `status` is what says the mode actually
+                # changed. AP rejects GUIDED when the EKF/prearm isn't ready, so
+                # treating any non-None result as success would arm in the wrong
+                # mode.
+                if resp is not None and resp.status:
                     self.get_logger().info('GUIDED mode confirmed — sending arm.')
                     self._arming_step = 1
                     self._arm_future = self._ap.arm_async()
                 else:
-                    self.get_logger().error('Mode switch failed — retrying.')
+                    reason = 'rejected by AP' if resp is not None else 'no response'
+                    self.get_logger().error(
+                        f'GUIDED switch {reason} — retrying.',
+                        throttle_duration_sec=1.0
+                    )
                     self._mode_future = self._ap.set_mode_async(4)
             return
 
         # Step 1: wait for arm confirmation
         if self._arming_step == 1:
             if self._arm_future is not None and self._arm_future.done():
-                if self._arm_future.result() is not None:
+                resp = self._arm_future.result()
+                # ArmMotors.Response carries `bool result`. A completed call only
+                # means AP answered — `result` is what says the motors actually
+                # armed. Proceeding to TAKEOFF on a rejected arm is unsafe.
+                if resp is not None and resp.result:
                     self._arm_confirmed = True
                     self.get_logger().info('Armed successfully — initiating takeoff.')
                     self._transition(State.TAKEOFF)
                     return
                 else:
-                    self.get_logger().warn('Arm rejected — retrying.')
+                    reason = 'rejected by AP' if resp is not None else 'no response'
+                    self.get_logger().warn(
+                        f'Arm {reason} — retrying.',
+                        throttle_duration_sec=1.0
+                    )
                     self._arm_future = self._ap.arm_async()
             return
 
-        if elapsed > self.ARMING_TIMEOUT_S:
-            self.get_logger().error('Arming timed out — aborting mission.')
-            self._mode_future = None
-            self._arm_future  = None
-            self._arming_step = 0
-            self._transition(State.IDLE)
-            self._start_cmd_received = False  # Allow retry
-
     def _state_takeoff(self):
+        # Climb watchdog — checked every tick, BEFORE the send/confirm branches
+        # below (which return early, so a check after them would be unreachable,
+        # cf. the arming timeout). If we haven't reached altitude in time the
+        # takeoff isn't happening (silent reject, no climb, motor fault, or a
+        # disarmed vehicle on a repeat sortie). TAKEOFF is past ARMING, so the
+        # drone is armed and may be partly airborne — bring it down via
+        # failsafe-land rather than hang here or drop to IDLE.
+        if self._elapsed_in_state() > self.takeoff_timeout_s:
+            cz = self._get_current_z()
+            z_str = f'{cz:.1f}m' if cz is not None else 'no pose'
+            self._takeoff_sent   = False
+            self._takeoff_future = None
+            self._trigger_failsafe(
+                f'TAKEOFF_TIMEOUT ({self.takeoff_timeout_s:.0f}s, z={z_str})',
+                State.FAILSAFE_LAND
+            )
+            return
+
         # Send the ArduPilot takeoff service ONCE. In GUIDED mode the drone
         # will not leave the ground from velocity setpoints alone — it needs
         # an explicit takeoff command. We must NOT spam cmd_vel during the
@@ -602,6 +736,24 @@ class AscendFSMNode(Node):
             self._takeoff_future = self._ap.takeoff_async(self.TAKEOFF_ALTITUDE_M)
             self._takeoff_sent = True
             return
+
+        # Confirm AP actually ACCEPTED the takeoff (Takeoff.Response.status). A
+        # completed service call alone doesn't mean the vehicle is climbing — AP
+        # rejects takeoff if it isn't armed or isn't in GUIDED. Re-send on
+        # rejection instead of silently waiting out the climb watchdog.
+        if self._takeoff_future is not None:
+            if not self._takeoff_future.done():
+                return
+            resp = self._takeoff_future.result()
+            if resp is None or not resp.status:
+                reason = 'rejected by AP' if resp is not None else 'no response'
+                self.get_logger().warn(
+                    f'Takeoff {reason} — re-sending.', throttle_duration_sec=1.0
+                )
+                self._takeoff_future = self._ap.takeoff_async(self.TAKEOFF_ALTITUDE_M)
+                return
+            self._takeoff_future = None  # accepted — now wait for the climb
+            self.get_logger().info('Takeoff accepted — climbing.')
 
         # Just publish the target pose for visualization while climbing.
         self.pub_target_pose.publish(
@@ -617,6 +769,7 @@ class AscendFSMNode(Node):
             self._takeoff_sent = False  # reset for next sortie
             self._pattern.reset()
             self._current_wp = self._pattern.next_waypoint()
+            self._wp_arrival_time = None  # fresh dwell timer for the new sweep
             self._transition(State.SURVEY)
 
     def _state_survey(self):
@@ -642,25 +795,96 @@ class AscendFSMNode(Node):
             )
 
         if self._distance_to(x, y, z) < self.wp_radius:
-            if self._elapsed_in_state() > self.HOVER_DWELL_S or self._state_entry_time is None:
-                self._current_wp = self._pattern.next_waypoint()
+            # Hover-dwell at THIS waypoint before advancing. _elapsed_in_state()
+            # is the wrong clock: the whole sweep runs inside one SURVEY state,
+            # so it measures time-in-survey (always > dwell after the first
+            # 1.5 s) and every waypoint past the first would advance the instant
+            # it's reached — no pause, no steady frames for SIFT. Time from
+            # arrival at the current waypoint instead.
+            if self._wp_arrival_time is None:
+                self._wp_arrival_time = self.get_clock().now()
+            else:
+                dwell = (self.get_clock().now() - self._wp_arrival_time).nanoseconds / 1e9
+                if dwell >= self.hover_dwell_s:
+                    self._current_wp = self._pattern.next_waypoint()
+                    self._wp_arrival_time = None  # re-arm for the next waypoint
 
     def _state_match_verify(self):
         if self._pending_match is None:
+            self._match_hold = None
             self._transition(State.SURVEY)
             return
-        if self._current_wp:
-            x, y, z = self._current_wp
-            self._send_position_cmd(x, y, z)
-        if self._elapsed_in_state() >= self.MATCH_HOVER_S:
+
+        # HOLD over the feature for the whole verification — do NOT keep flying
+        # toward the next survey waypoint. Flying on drifts the logged coordinate
+        # ~MATCH_HOVER_S of travel away from where the feature was actually seen,
+        # and denies the matcher the steady frames it needs to confirm. Capture
+        # the position once (first tick over the feature) and command back to it
+        # each tick so the P-controller resists drift.
+        if self._match_hold is None:
+            cx, cy, cz = self._get_current_x(), self._get_current_y(), self._get_current_z()
+            if cx is not None:
+                self._match_hold = (cx, cy, cz)
+        if self._match_hold is not None:
+            self._send_position_cmd(*self._match_hold)
+
+        if self._elapsed_in_state() >= self.match_hover_s:
             self._confirm_match()
+
+    def _yaw_from_pose(self, pose):
+        """Yaw in radians (about +z) from a PoseStamped quaternion; 0 if None."""
+        if pose is None:
+            return 0.0
+        q = pose.pose.orientation
+        siny = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        return math.atan2(siny, cosy)
 
     def _confirm_match(self):
         if self._pending_match is None:
             return
-        pose = self._current_pose
-        x = pose.pose.position.x if pose else 0.0
-        y = pose.pose.position.y if pose else 0.0
+        # Base = where the drone was when the feature was seen (held position),
+        # not a fresh read taken MATCH_HOVER_S later.
+        if self._match_hold is not None:
+            base_x, base_y, alt = self._match_hold
+        else:
+            pose = self._ap_pose
+            base_x = pose.pose.position.x if pose else 0.0
+            base_y = pose.pose.position.y if pose else 0.0
+            alt = pose.pose.position.z if pose else 0.0
+        x, y = base_x, base_y
+
+        # Back-project the feature's bearing to an arena coordinate (#5).
+        # The vision node reports angle_x (+right) / angle_y (+down), so the
+        # camera optical ray (RDF: x-right, y-down, z-forward) is
+        # (tan ax, tan ay, 1). Rotate it into the FRD body frame with the
+        # configurable camera_to_body_rotation, intersect the ground plane
+        # (body +z = down, depth = alt), then rotate the body (forward, right)
+        # offset into the world (map ENU) frame by the drone yaw and add it to
+        # the drone position — so we log WHERE the feature is, not just where
+        # the drone was (which can be off by up to half the camera footprint).
+        # ASSUMES roughly level flight and /ap/pose/filtered in map ENU, yaw CCW
+        # from +x. VERIFY in sim over a known feature; if the coordinate is
+        # mirrored/rotated, fix the camera_to_body_rotation in the yaml.
+        ax = self._pending_match.get('angle_x')
+        ay = self._pending_match.get('angle_y')
+        if ax is not None and ay is not None and alt and alt > 0.1:
+            ray = (math.tan(float(ax)), math.tan(float(ay)), 1.0)  # camera RDF
+            R = self._cam_to_body_R
+            bx = R[0][0] * ray[0] + R[0][1] * ray[1] + R[0][2] * ray[2]  # forward
+            by = R[1][0] * ray[0] + R[1][1] * ray[1] + R[1][2] * ray[2]  # right
+            bz = R[2][0] * ray[0] + R[2][1] * ray[1] + R[2][2] * ray[2]  # down
+            if bz > 1e-6:                       # ray must point at the ground
+                s = alt / bz                    # scale to the ground plane
+                fwd, right = bx * s, by * s
+                yaw = self._yaw_from_pose(self._ap_pose)
+                x = base_x + fwd * math.cos(yaw) + right * math.sin(yaw)
+                y = base_y + fwd * math.sin(yaw) - right * math.cos(yaw)
+                self.get_logger().info(
+                    f'Feature back-projected: drone=({base_x:.2f},{base_y:.2f}) '
+                    f'fwd={fwd:+.2f} right={right:+.2f} '
+                    f'yaw={math.degrees(yaw):.0f}deg -> feature=({x:.2f},{y:.2f})m'
+                )
 
         feature = {
             'seed_id':    self._pending_match['seed_id'],
@@ -671,6 +895,7 @@ class AscendFSMNode(Node):
         }
         self._features_found.append(feature)
         self._pending_match = None
+        self._match_hold    = None
 
         self.get_logger().info(
             f'Feature confirmed: id={feature["seed_id"]} '
@@ -735,20 +960,32 @@ class AscendFSMNode(Node):
             self._plnd_complete = False
 
             self._transition(State.DOCKING)
+            return
+
+        # Watchdog: the precision lander reports `complete` ONLY on success. If
+        # it aborts (marker lost past its search timeout) it just hovers and
+        # never reports — and it won't restart from a re-published `start` — so
+        # without this the FSM would hang in LANDING forever. On an aborted
+        # landing the lander is silent and the vehicle is still in GUIDED above
+        # the dock, so fall back to the FSM's own descent-and-disarm.
+        if self._elapsed_in_state() > self.landing_timeout_s:
+            self._plnd_started  = False
+            self._plnd_complete = False
+            self._trigger_failsafe(
+                f'PRECISION_LANDING_TIMEOUT ({self.landing_timeout_s:.0f}s)',
+                State.FAILSAFE_LAND
+            )
 
     def _state_docking(self):
         if self._elapsed_in_state() > 2.0:
             self.get_logger().info('Docking complete.')
             self._sorties_done += 1
-
-            if not self._charge_triggered:
-                self._transition(State.TRANSFER)
-            elif not self._transfer_done:
-                self._transition(State.TRANSFER)
-            elif len(self._features_found) < self.n_features and self._sorties_done < self.max_sorties:
-                self._transition(State.CHARGING)
-            else:
-                self._transition(State.COMPLETE)
+            # Upload this sortie's data after every landing, then let TRANSFER
+            # decide whether to charge for another sortie or finish. The old
+            # branch keyed off _charge_triggered/_transfer_done, which are sticky
+            # across sorties — so after sortie 1 it skipped TRANSFER entirely and
+            # the features found on later sorties were never uploaded.
+            self._transition(State.TRANSFER)
 
     def _state_charging(self):
         if not self._charge_triggered:
@@ -761,18 +998,29 @@ class AscendFSMNode(Node):
 
         if self._charging_done:
             self.get_logger().info('Battery charged — ready for next sortie.')
-            self._charging_done = False
+            # Re-arm BOTH flags so the next sortie actually re-commands the
+            # charger. Leaving _charge_triggered set means sortie 2+ skips the
+            # start_charge publish and just waits out the timeout — the battery
+            # never really recharges, so repeated sorties aren't possible.
+            self._charge_triggered = False
+            self._charging_done    = False
             if len(self._features_found) < self.n_features and self._sorties_done < self.max_sorties:
                 self.get_logger().info(
                     f'Starting sortie #{self._sorties_done + 1}. '
                     f'Still need {self.n_features - len(self._features_found)} feature(s).'
                 )
-                self._transition(State.TAKEOFF)
+                # Re-ARM before the next sortie — do NOT jump straight to TAKEOFF.
+                # Every landing disarms the vehicle (_send_disarm_command clears
+                # _arm_confirmed and resets the arming sub-state), so a repeat
+                # sortie must re-enter GUIDED + arm first. ARMING already does
+                # exactly that, with the same result-checks and timeout abort;
+                # going to TAKEOFF would command takeoff on a disarmed vehicle.
+                self._transition(State.ARMING)
             else:
                 self._transition(State.COMPLETE)
             return
 
-        if self._elapsed_in_state() > self.CHARGE_TIMEOUT_S:
+        if self._elapsed_in_state() > self.charge_timeout_s:
             self.get_logger().warn('Charging timed out — proceeding.')
             self._charging_done = True
 
@@ -796,7 +1044,7 @@ class AscendFSMNode(Node):
                 self._transition(State.COMPLETE)
             return
 
-        if self._elapsed_in_state() > self.TRANSFER_TIMEOUT_S:
+        if self._elapsed_in_state() > self.transfer_timeout_s:
             self.get_logger().warn('Data transfer timed out — marking attempted.')
             self._transfer_done = True
 
@@ -818,23 +1066,55 @@ class AscendFSMNode(Node):
         dist_xy = math.sqrt(
             (self._get_current_x() - self.DOCK_TARGET_X)**2 +
             (self._get_current_y() - self.DOCK_TARGET_Y)**2
-        ) if self._current_pose else 99.0
+        ) if self._ap_pose else 99.0
 
         if dist_xy < self.wp_radius:
             self.get_logger().info('Failsafe RTL: above home — landing.')
             self._transition(State.FAILSAFE_LAND)
 
     def _state_failsafe_land(self):
-        current_z = self._get_current_z() or 0.5
-        target_z  = max(0.0, current_z - 0.1)
-        self._send_position_cmd(
-            self._get_current_x() or 0.0,
-            self._get_current_y() or 0.0,
-            target_z
-        )
-        if current_z < 0.1:
+        # Terminal once we're down — go fully quiescent. The old handler kept
+        # re-publishing a descent setpoint AND re-disarming AND re-logging every
+        # tick (10 Hz) after touchdown, forever; it never latched.
+        if self._failsafe_landed:
+            return
+
+        # Hand the descent to ArduPilot LAND mode: it has ground detection and
+        # auto-disarm and does not depend on the FSM pose estimate, so it is far
+        # more robust than stepping a velocity setpoint down — and unlike GUIDED
+        # it actually disarms on the ground. Confirm the switch took before
+        # trusting it; a silently-rejected switch would leave us hovering.
+        if not self._failsafe_land_confirmed:
+            if self._failsafe_land_future is None:
+                self.get_logger().error(
+                    f'FAILSAFE LAND ({self._failsafe_reason}) — commanding AP LAND mode.'
+                )
+                self._failsafe_land_future = self._ap.set_mode_async(self.LAND_MODE)
+                return
+            if self._failsafe_land_future.done():
+                resp = self._failsafe_land_future.result()
+                if resp is not None and resp.status:
+                    self._failsafe_land_confirmed = True
+                    self.get_logger().info('AP LAND mode confirmed — descending.')
+                else:
+                    self.get_logger().warn(
+                        'LAND switch rejected — retrying.', throttle_duration_sec=1.0
+                    )
+                    self._failsafe_land_future = self._ap.set_mode_async(self.LAND_MODE)
+            return
+
+        # In LAND mode AP brings it down and disarms itself. Latch terminal once
+        # we read near-ground altitude: disarm once (belt-and-suspenders) and
+        # stop. If pose is unavailable we never read touchdown, but AP LAND still
+        # lands and disarms on its own — the FSM just idles quietly here.
+        current_z = self._get_current_z()
+        if current_z is not None and current_z < 0.15:
             self._send_disarm_command()
-            self.get_logger().error(f'FAILSAFE LANDING COMPLETE. Reason: {self._failsafe_reason}')
+            self._failsafe_landed = True
+            self.get_logger().error(
+                f'FAILSAFE LANDING COMPLETE (z={current_z:.2f}m). '
+                f'Reason: {self._failsafe_reason}'
+            )
 
     def _state_nav_degraded(self):
         # SLAM lost: hold position in LOITER (EKF is now on optical flow via the
@@ -927,22 +1207,16 @@ class AscendFSMNode(Node):
     # ─────────────────────────────────────────
 
     def _get_current_x(self):
-        if self._current_pose:
-            return self._current_pose.pose.position.x
         if self._ap_pose:
             return self._ap_pose.pose.position.x
         return None
 
     def _get_current_y(self):
-        if self._current_pose:
-            return self._current_pose.pose.position.y
         if self._ap_pose:
             return self._ap_pose.pose.position.y
         return None
 
     def _get_current_z(self):
-        if self._current_pose:
-            return self._current_pose.pose.position.z
         if self._ap_pose:
             return self._ap_pose.pose.position.z
         return None

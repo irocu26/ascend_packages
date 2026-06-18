@@ -58,15 +58,21 @@ def launch_setup(context, *args, **kwargs):
     sim_mode = (target == 'sim')
     use_sim_time = {'use_sim_time': sim_mode}
 
-    # Per-target camera topics for the ArUco detector. The node subscribes to
-    # the fixed names '/camera/image' and '/camera/camera_info'; we remap those
-    # to the sim/hw sources here so the node code stays untouched.
+    # Per-target camera topics + ArUco marker spec. The detector node subscribes
+    # to the fixed names '/camera/image' and '/camera/camera_info' (remapped to
+    # the sim/hw sources below), and its marker_size/id differ by target: the
+    # sim arena marker is 0.3 m / ID 0, the real competition marker is 0.16 m /
+    # ID 42. The dictionary (4X4_50) is the same for both.
     if target == 'sim':
-        cam_image_topic = '/rgbd_camera/image'
-        cam_info_topic  = '/rgbd_camera/camera_info'
+        cam_image_topic    = '/rgbd_camera/image'
+        cam_info_topic     = '/rgbd_camera/camera_info'
+        aruco_marker_size  = 0.3    # m — sim arena marker
+        aruco_target_id    = 0
     else:  # hw — RealSense D435i color stream
-        cam_image_topic = '/camera/camera/color/image_raw'
-        cam_info_topic  = '/camera/camera/color/camera_info'
+        cam_image_topic    = '/camera/camera/color/image_raw'
+        cam_info_topic     = '/camera/camera/color/camera_info'
+        aruco_marker_size  = 0.16   # m — real competition marker (16 cm)
+        aruco_target_id    = 42
 
     # ── ASCEND FSM ────────────────────────────────────────────────────────
     fsm_node = Node(
@@ -110,9 +116,9 @@ def launch_setup(context, *args, **kwargs):
         output='screen',
         parameters=[
             {
-                'marker_size_m': 0.3,
+                'marker_size_m': aruco_marker_size,
                 'aruco_dict': '4X4_50',
-                'target_marker_id': 0,
+                'target_marker_id': aruco_target_id,
                 'publish_debug': True,
                 'camera_topic': '/camera/image',
                 'camera_info_topic': '/camera/camera_info',

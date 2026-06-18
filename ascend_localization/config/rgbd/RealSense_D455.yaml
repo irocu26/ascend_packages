@@ -1,0 +1,98 @@
+%YAML:1.0
+
+#--------------------------------------------------------------------------------------------
+# D455  RGBD (type:=n)  --  color image + depth aligned to color.
+#
+# !!! PLACEHOLDER INTRINSICS !!!
+# No D455 rgb-d config existed in ROS2_ORB-SLAM3_Odometry (only stereo /
+# stereo-inertial). These are NOMINAL D455 RGB-module values for 640x480 and MUST
+# be replaced with a real calibration of THIS unit before flight.
+#
+# NOTE: the D455 *color* sensor is GLOBAL SHUTTER (OV9782, up to 1280x800) and
+# shares the depth module's wide FOV -- this is the global-shutter RGBD baseline
+# (the main reason to prefer the D455 over the rolling-shutter D435i RGB).
+#--------------------------------------------------------------------------------------------
+Mount.R: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: f
+   data: [ 1.0,  0.0,  0.0,
+           0.0, -1.0,  0.0,
+           0.0,  0.0, -1.0 ]
+
+Camera.type: "PinHole"
+
+# D455 color calibration -- FACTORY intrinsics, unit S/N 324422301006, Color 640x480
+# Read from `rs-enumerate-devices -c` (Intel factory calibration). If you change
+# the stream resolution, pull the matching block again -- fx/fy/cx/cy scale with it.
+Camera.fx: 386.290008544922
+Camera.fy: 385.711273193359
+Camera.cx: 323.114807128906
+Camera.cy: 239.783355712891
+
+# Color distortion (Intel "Inverse Brown Conrady" coeffs k1 k2 p1 p2 k3)
+Camera.k1: -0.0552622675895691
+Camera.k2: 0.0638431683182716
+Camera.p1: -0.00038528858567588
+Camera.p2: 0.00112622533924878
+Camera.k3: -0.0208942368626595
+
+Camera.width: 640
+Camera.height: 480
+Camera.fps: 30.0
+
+Camera.RGB: 1
+
+Camera.imageScale: 0.5
+
+ThDepth: 40.0
+
+# stereo baseline (factory IR1->IR2 = 0.0950557 m) * fx  =  0.0950557 * 386.290 = 36.72
+Camera.bf: 36.72
+
+DepthMapFactor: 1000.0
+
+# Transformation camera -> body(imu).  Factory "Color -> Gyro" extrinsic of S/N 324422301006.
+# Rotation is ~identity (color and IMU optical frames are co-aligned); translation is the
+# real color->IMU lever arm in metres.  NOTE: if you actually run RGBD-INERTIAL, verify this
+# against a Kalibr cam-imu calibration -- librealsense IMU axis conventions can need a flip.
+Tbc: !!opencv-matrix
+   rows: 4
+   cols: 4
+   dt: f
+   data: [ 0.999999,   -0.00144498,  0.000119291,  0.0286947097629309,
+           0.00144497,   0.999999,    0.00011784,   0.00736981024965644,
+          -0.000119461, -0.000117668, 1.0,          0.0161508470773697,
+           0.0,          0.0,         0.0,          1.0 ]
+
+InsertKFsWhenLost: 0
+
+IMU.NoiseGyro: 1e-3
+IMU.NoiseAcc: 1e-2
+IMU.GyroWalk: 1e-6
+IMU.AccWalk: 1e-4
+IMU.Frequency: 200
+
+#--------------------------------------------------------------------------------------------
+# ORB Parameters
+#--------------------------------------------------------------------------------------------
+ORBextractor.nFeatures: 1250
+ORBextractor.scaleFactor: 1.2
+ORBextractor.nLevels: 8
+ORBextractor.iniThFAST: 20
+ORBextractor.minThFAST: 7
+
+#--------------------------------------------------------------------------------------------
+# Viewer Parameters
+#--------------------------------------------------------------------------------------------
+Viewer.KeyFrameSize: 0.05
+Viewer.KeyFrameLineWidth: 1
+Viewer.GraphLineWidth: 0.9
+Viewer.PointSize: 2
+Viewer.CameraSize: 0.08
+Viewer.CameraLineWidth: 3
+Viewer.ViewpointX: 0
+Viewer.ViewpointY: -0.7
+Viewer.ViewpointZ: -3.5
+Viewer.ViewpointF: 500
+Viewer.isActive: 0

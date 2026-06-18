@@ -17,14 +17,15 @@ Mount.R: !!opencv-matrix
 #--------------------------------------------------------------------------------------------
 Camera.type: "PinHole"
 
-# Right Camera calibration and distortion parameters (OpenCV)
-Camera.fx: 617.201
-Camera.fy: 617.362
-Camera.cx: 324.637
-Camera.cy: 242.462
+# Color calibration -- FACTORY intrinsics, unit S/N 243322072688, Color 640x480
+# Read from `rs-enumerate-devices -c`. Re-pull the matching block if you change resolution.
+Camera.fx: 605.881591796875
+Camera.fy: 605.785278320312
+Camera.cx: 321.603698730469
+Camera.cy: 253.595031738281
 
 
-# distortion parameters
+# distortion parameters -- factory color stream reports zero (Inverse Brown Conrady, all 0)
 Camera.k1: 0.0
 Camera.k2: 0.0
 Camera.p1: 0.0
@@ -46,21 +47,22 @@ Camera.imageScale: 0.5 # 0.5 #0.7071 # 1/sqrt(2)
 # Close/Far threshold. Baseline times.
 ThDepth: 40.0
 
-# stereo baseline times fx
-Camera.bf: 46.01
+# stereo baseline times fx  (factory IR1->IR2 = 0.0500543 m) * fx 605.882 = 30.33
+Camera.bf: 30.33
 
 # Deptmap values factor
 DepthMapFactor: 1000.0
 
-# Transformation from body-frame (imu) to left camera
+# Transformation camera -> body(imu).  Factory "Color -> Gyro" extrinsic of S/N 243322072688.
+# If you run RGBD-INERTIAL, verify against Kalibr (librealsense IMU axis convention may flip).
 Tbc: !!opencv-matrix
    rows: 4
    cols: 4
    dt: f
-   data: [1,0,0,-0.005,
-         0,1,0,-0.005,
-         0,0,1,0.0117,
-         0.0, 0.0, 0.0, 1.0]
+   data: [ 0.999894,    -0.0144856,   -0.00115451,  -0.0202972870320082,
+           0.014486,     0.999895,     0.000312427,  0.00511893257498741,
+           0.00114987,  -0.000329119,  0.999999,     0.0114494292065501,
+           0.0,          0.0,          0.0,          1.0 ]
 
 # Do not insert KFs when recently lost
 InsertKFsWhenLost: 0
@@ -104,3 +106,4 @@ Viewer.ViewpointX: 0
 Viewer.ViewpointY: -0.7
 Viewer.ViewpointZ: -3.5
 Viewer.ViewpointF: 500
+Viewer.isActive: 0
