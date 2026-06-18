@@ -79,8 +79,11 @@ def launch_setup(context, *args, **kwargs):
                 'align_depth.enable': True,   # depth registered to color
                 'enable_sync': True,          # time-sync color + depth
                 # intrinsics in RealSense_D435i.yaml are for 640x480:
-                # 'rgb_camera.color_profile': '640x480x15',
-                # 'depth_module.depth_profile': '640x480x15',
+                'rgb_camera.color_profile': '640x480x15',
+                'depth_module.depth_profile': '640x480x15',
+                'enable_infra1':False,
+                'enable_infra2':False,
+                'filters':'decimation',
             }],
         ))
 
