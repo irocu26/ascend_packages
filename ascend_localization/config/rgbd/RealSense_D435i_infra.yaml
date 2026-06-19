@@ -1,0 +1,95 @@
+%YAML:1.0
+
+#--------------------------------------------------------------------------------------------
+# D435i  INFRA (type:=i)  --  feed the LEFT IR image (global shutter) as the tracking
+# stream + raw depth (which is natively registered to the left-IR frame, so NO
+# align-to-color is used here).
+#
+# !!! PLACEHOLDER INTRINSICS !!!
+# These are NOMINAL D435i depth-module (left IR) values for 640x480 and MUST be
+# replaced with a real calibration of THIS unit's IR camera before flight.
+# The IR camera intrinsics differ from the RGB camera (see RealSense_D435i.yaml).
+#--------------------------------------------------------------------------------------------
+Mount.R: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: f
+   data: [ 1.0,  0.0,  0.0,
+           0.0, -1.0,  0.0,
+           0.0,  0.0, -1.0 ]
+
+Camera.type: "PinHole"
+
+# Left IR (depth module) calibration -- FACTORY intrinsics, S/N 243322072688, Infrared 1 640x480
+# Read from `rs-enumerate-devices -c`. Depth is natively registered to this left-IR frame.
+Camera.fx: 387.424041748047
+Camera.fy: 387.424041748047
+Camera.cx: 323.750671386719
+Camera.cy: 239.342391967773
+
+# distortion (IR stream is factory-rectified -> 0)
+Camera.k1: 0.0
+Camera.k2: 0.0
+Camera.p1: 0.0
+Camera.p2: 0.0
+
+Camera.width: 640
+Camera.height: 480
+Camera.fps: 30.0
+
+# IR is grayscale; Camera.RGB is ignored for mono input
+Camera.RGB: 1
+
+Camera.imageScale: 0.5
+
+ThDepth: 40.0
+
+# stereo baseline (factory IR1->IR2 = 0.0500543 m) * fx 387.424  =  19.39
+Camera.bf: 19.39
+
+# Depth is in millimetres
+DepthMapFactor: 1000.0
+
+# Transformation camera -> body(imu).  Factory "Infrared 1 -> Gyro" extrinsic, S/N 243322072688.
+# Rotation is identity (IR1 is the depth-module reference frame); translation is the lever arm.
+# If you run inertial mode, verify against Kalibr (librealsense IMU axis convention may flip).
+Tbc: !!opencv-matrix
+   rows: 4
+   cols: 4
+   dt: f
+   data: [ 1.0, 0.0, 0.0, -0.00552000012248755,
+           0.0, 1.0, 0.0,  0.00510000018402934,
+           0.0, 0.0, 1.0,  0.011739999987185,
+           0.0, 0.0, 0.0,  1.0 ]
+
+InsertKFsWhenLost: 0
+
+IMU.NoiseGyro: 1e-3
+IMU.NoiseAcc: 1e-2
+IMU.GyroWalk: 1e-6
+IMU.AccWalk: 1e-4
+IMU.Frequency: 200
+
+#--------------------------------------------------------------------------------------------
+# ORB Parameters
+#--------------------------------------------------------------------------------------------
+ORBextractor.nFeatures: 1250
+ORBextractor.scaleFactor: 1.2
+ORBextractor.nLevels: 8
+ORBextractor.iniThFAST: 20
+ORBextractor.minThFAST: 7
+
+#--------------------------------------------------------------------------------------------
+# Viewer Parameters
+#--------------------------------------------------------------------------------------------
+Viewer.KeyFrameSize: 0.05
+Viewer.KeyFrameLineWidth: 1
+Viewer.GraphLineWidth: 0.9
+Viewer.PointSize: 2
+Viewer.CameraSize: 0.08
+Viewer.CameraLineWidth: 3
+Viewer.ViewpointX: 0
+Viewer.ViewpointY: -0.7
+Viewer.ViewpointZ: -3.5
+Viewer.ViewpointF: 500
+Viewer.isActive: 0

@@ -1,0 +1,160 @@
+Intrinsic Parameters:
+
+ Intrinsic of "Depth" / 256x144 / {Z16}
+  Width:      	256
+  Height:     	144
+  PPX:        	133.867858886719
+  PPY:        	70.538330078125
+  Fx:         	652.131164550781
+  Fy:         	652.131164550781
+  Distortion: 	Brown Conrady
+  Coeffs:     	0  	0  	0  	0  	0  
+  FOV (deg):  	22.21 x 12.6
+
+ Intrinsic of "Depth" / 424x240 / {Z16}
+  Width:      	424
+  Height:     	240
+  PPX:        	213.943725585938
+  PPY:        	119.515823364258
+  Fx:         	216.018447875977
+  Fy:         	216.018447875977
+  Distortion: 	Brown Conrady
+  Coeffs:     	0  	0  	0  	0  	0  
+  FOV (deg):  	88.92 x 58.11
+
+ Intrinsic of "Depth" / 480x270 / {Z16}
+  Width:      	480
+  Height:     	270
+  PPX:        	242.200439453125
+  PPY:        	134.451873779297
+  Fx:         	244.549194335938
+  Fy:         	244.549194335938
+  Distortion: 	Brown Conrady
+  Coeffs:     	0  	0  	0  	0  	0  
+  FOV (deg):  	88.92 x 57.8
+
+ Intrinsic of "Depth" / 640x360 / {Z16}
+  Width:      	640
+  Height:     	360
+  PPX:        	322.933929443359
+  PPY:        	179.269165039062
+  Fx:         	326.065582275391
+  Fy:         	326.065582275391
+  Distortion: 	Brown Conrady
+  Coeffs:     	0  	0  	0  	0  	0  
+  FOV (deg):  	88.92 x 57.8
+
+ Intrinsic of "Depth" / 640x480 / {Z16}
+  Width:      	640
+  Height:     	480
+  PPX:        	323.520721435547
+  PPY:        	239.0947265625
+  Fx:         	391.278686523438
+  Fy:         	391.278686523438
+  Distortion: 	Brown Conrady
+  Coeffs:     	0  	0  	0  	0  	0  
+  FOV (deg):  	78.55 x 63.05
+
+ Intrinsic of "Depth" / 848x100 / {Z16}
+  Width:      	848
+  Height:     	100
+  PPX:        	427.887451171875
+  PPY:        	49.0316467285156
+  Fx:         	432.036895751953
+  Fy:         	432.036895751953
+  Distortion: 	Brown Conrady
+  Coeffs:     	0  	0  	0  	0  	0  
+  FOV (deg):  	88.92 x 13.2
+
+ Intrinsic of "Depth" / 848x480 / {Z16}
+  Width:      	848
+  Height:     	480
+  PPX:        	427.887451171875
+  PPY:        	239.031646728516
+  Fx:         	432.036895751953
+  Fy:         	432.036895751953
+  Distortion: 	Brown Conrady
+  Coeffs:     	0  	0  	0  	0  	0  
+  FOV (deg):  	88.92 x 58.11
+
+ Intrinsic of "Depth" / 1280x720 / {Z16}
+  Width:      	1280
+  Height:     	720
+  PPX:        	645.867858886719
+  PPY:        	358.538330078125
+  Fx:         	652.131164550781
+  Fy:         	652.131164550781
+  Distortion: 	Brown Conrady
+  Coeffs:     	0  	0  	0  	0  	0  
+  FOV (deg):  	88.92 x 57.8
+
+ Intrinsic of "Color" / 424x240 / {YUYV/RGB8/BGR8/RGBA8/BGRA8}
+  Width:      	424
+  Height:     	240
+  PPX:        	213.719635009766
+  PPY:        	119.880393981934
+  Fx:         	213.264282226562
+  Fy:         	212.944778442383
+  Distortion: 	Inverse Brown Conrady
+  Coeffs:     	-0.0552622675895691  	0.0638431683182716  	-0.00038528858567588  	0.00112622533924878  	-0.0208942368626595  
+  FOV (deg):  	89.66 x 58.8
+
+ Intrinsic of "Color" / 480x270 / {YUYV/RGB8/BGR8/RGBA8/BGRA8}
+  Width:      	480
+  Height:     	270
+  PPX:        	241.946746826172
+  PPY:        	134.864593505859
+  Fx:         	241.431259155273
+  Fy:         	241.069564819336
+  Distortion: 	Inverse Brown Conrady
+  Coeffs:     	-0.0552622675895691  	0.0638431683182716  	-0.00038528858567588  	0.00112622533924878  	-0.0208942368626595  
+  FOV (deg):  	89.66 x 58.5
+
+ Intrinsic of "Color" / 640x360 / {YUYV/RGB8/BGR8/RGBA8/BGRA8}
+  Width:      	640
+  Height:     	360
+  PPX:        	322.595672607422
+  PPY:        	179.819473266602
+  Fx:         	321.908325195312
+  Fy:         	321.426086425781
+  Distortion: 	Inverse Brown Conrady
+  Coeffs:     	-0.0552622675895691  	0.0638431683182716  	-0.00038528858567588  	0.00112622533924878  	-0.0208942368626595  
+  FOV (deg):  	89.66 x 58.5
+
+ Intrinsic of "Color" / 640x480 / {YUYV/RGB8/BGR8/RGBA8/BGRA8}
+  Width:      	640
+  Height:     	480
+  PPX:        	323.114807128906
+  PPY:        	239.783355712891
+  Fx:         	386.290008544922
+  Fy:         	385.711273193359
+  Distortion: 	Inverse Brown Conrady
+  Coeffs:     	-0.0552622675895691  	0.0638431683182716  	-0.00038528858567588  	0.00112622533924878  	-0.0208942368626595  
+  FOV (deg):  	79.27 x 63.78
+
+ Intrinsic of "Color" / 848x480 / {YUYV/RGB8/BGR8/RGBA8/BGRA8}
+  Width:      	848
+  Height:     	480
+  PPX:        	427.439270019531
+  PPY:        	239.760787963867
+  Fx:         	426.528564453125
+  Fy:         	425.889556884766
+  Distortion: 	Inverse Brown Conrady
+  Coeffs:     	-0.0552622675895691  	0.0638431683182716  	-0.00038528858567588  	0.00112622533924878  	-0.0208942368626595  
+  FOV (deg):  	89.66 x 58.8
+
+ Intrinsic of "Color" / 1280x720 / {YUYV/RGB8/BGR8/RGBA8/BGRA8}
+  Width:      	1280
+  Height:     	720
+  PPX:        	645.191345214844
+  PPY:        	359.638946533203
+  Fx:         	643.816650390625
+  Fy:         	642.852172851562
+  Distortion: 	Inverse Brown Conrady
+  Coeffs:     	-0.0552622675895691  	0.0638431683182716  	-0.00038528858567588  	0.00112622533924878  	-0.0208942368626595  
+  FOV (deg):  	89.66 x 58.5
+
+ Intrinsic of "Color" / 1280x800 / {YUYV/RGB8/BGR8/RGBA8/BGRA8/RAW16}
+  Width:      	1280
+  Height:     	800
+  PPX:        	645.191345214844

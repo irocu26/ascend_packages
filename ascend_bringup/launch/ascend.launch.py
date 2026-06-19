@@ -8,6 +8,14 @@ launch file. The same command runs the system in simulation or on hardware:
     ros2 launch ascend_bringup ascend.launch.py target:=sim   # Gazebo (default)
     ros2 launch ascend_bringup ascend.launch.py target:=hw    # Raspberry Pi 5 + RealSense
 
+The SLAM camera is selected independently of the system regime via `slam_target`
+(defaults to `target`) plus `type` and the exposure / motion-blur knobs — all
+forwarded to ascend_localization. The rest of the stack stays on `target`:
+
+    ros2 launch ascend_bringup ascend.launch.py target:=hw slam_target:=d435i type:=i
+    ros2 launch ascend_bringup ascend.launch.py target:=hw slam_target:=d455 \
+        auto_exposure:=false exposure:=3000 gain:=64
+
 This master does NOT start nodes directly; it includes the per-package launch
 files (localization, mission-control, vision) and forwards `target` so each
 package configures its own sim/hardware specifics.
@@ -40,6 +48,16 @@ def generate_launch_description():
     min_inliers = LaunchConfiguration('min_inliers')
     min_match_count = LaunchConfiguration('min_match_count')
     square_resize = LaunchConfiguration('square_resize')
+    # SLAM camera selection + motion-blur/exposure — forwarded to localization.
+    slam_target = LaunchConfiguration('slam_target')
+    slam_type = LaunchConfiguration('type')
+    auto_exposure = LaunchConfiguration('auto_exposure')
+    exposure = LaunchConfiguration('exposure')
+    gain = LaunchConfiguration('gain')
+    fps = LaunchConfiguration('fps')
+    width = LaunchConfiguration('width')
+    height = LaunchConfiguration('height')
+    emitter_enabled = LaunchConfiguration('emitter_enabled')
 
     declare_target = DeclareLaunchArgument(
         'target',
@@ -79,9 +97,59 @@ def generate_launch_description():
         description='Anamorphic squash to square for SIFT (#4). false = '
                     'aspect-preserving (recommended).',
     )
+    # ── SLAM camera selection + motion-blur/exposure (localization only) ─────
+    declare_slam_target = DeclareLaunchArgument(
+        'slam_target',
+        default_value=LaunchConfiguration('target'),
+        description="SLAM camera profile for ascend_localization: 'sim', 'hw', "
+                    "'d435i', 'd455'. Defaults to `target`, so sim/hw runs are "
+                    "unchanged; override to pick a specific camera while the "
+                    "rest of the stack stays on `target`.",
+    )
+    declare_type = DeclareLaunchArgument(
+        'type',
+        default_value='n',
+        description="SLAM stream: 'n' color/normal, 'i' infra/IR (d435i only).",
+    )
+    declare_auto_exposure = DeclareLaunchArgument(
+        'auto_exposure',
+        default_value='true',
+        description='Camera auto-exposure; manual exposure applies only when false.',
+    )
+    declare_exposure = DeclareLaunchArgument(
+        'exposure',
+        default_value='8500',
+        description='Manual exposure in microseconds (shorter = less motion blur).',
+    )
+    declare_gain = DeclareLaunchArgument(
+        'gain',
+        default_value='16',
+        description='Camera sensor gain (raise to compensate short exposure).',
+    )
+    declare_fps = DeclareLaunchArgument(
+        'fps',
+        default_value='30',
+        description='Camera stream frame rate.',
+    )
+    declare_width = DeclareLaunchArgument(
+        'width',
+        default_value='640',
+        description='Camera stream width (must match the calib YAML).',
+    )
+    declare_height = DeclareLaunchArgument(
+        'height',
+        default_value='480',
+        description='Camera stream height (must match the calib YAML).',
+    )
+    declare_emitter_enabled = DeclareLaunchArgument(
+        'emitter_enabled',
+        default_value='0',
+        description='IR projector: 0=off, 1=on, 2=auto (infra only).',
+    )
 
     # ── Localization: ORB-SLAM3 RGBD odometry + ArduPilot relay ─────────────
-    #    Forwards `target` so it picks the sim/hw camera, calib and topics.
+    #    Forwards `slam_target` (defaults to `target`) so it picks the camera,
+    #    calib and topics, plus the stream `type` and exposure/motion-blur knobs.
     localization = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([
@@ -90,7 +158,17 @@ def generate_launch_description():
                 'localization.launch.py',
             ])
         ),
-        launch_arguments={'target': target}.items(),
+        launch_arguments={
+            'target': slam_target,
+            'type': slam_type,
+            'auto_exposure': auto_exposure,
+            'exposure': exposure,
+            'gain': gain,
+            'fps': fps,
+            'width': width,
+            'height': height,
+            'emitter_enabled': emitter_enabled,
+        }.items(),
     )
 
     # ── Mission-control stack (FSM + survey planner + monitor) ──────────────
@@ -135,6 +213,15 @@ def generate_launch_description():
         declare_min_inliers,
         declare_min_match_count,
         declare_square_resize,
+        declare_slam_target,
+        declare_type,
+        declare_auto_exposure,
+        declare_exposure,
+        declare_gain,
+        declare_fps,
+        declare_width,
+        declare_height,
+        declare_emitter_enabled,
         localization,
         mission_control,
         vision,
