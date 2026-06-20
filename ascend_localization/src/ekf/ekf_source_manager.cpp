@@ -10,8 +10,10 @@
 //   - axes[i] maps to RC channel (i+1), normalised [-1..+1] -> [RCmin..RCmax]
 //   - axes[i] = NaN releases that channel back to the real RC
 //   - overrides time out, so we must republish on a timer
-// We hold the aux channel (default RC8) LOW (-1.0 -> source set 1 = SLAM) when
-// tracking is healthy and MID (0.0 -> source set 2 = optical flow) when lost.
+// This deployment configures EK3 source set 1 = optical flow + rangefinder and
+// source set 2 = external nav (SLAM). So we hold the aux channel (default RC8)
+// MID (0.0 -> source set 2 = SLAM) when tracking is healthy and LOW (-1.0 ->
+// source set 1 = optical flow + rangefinder) when lost.
 //
 // Also publishes /ascend/localization/slam_ok (Bool) for the mission-control
 // FSM, which uses it to enter/leave its NAV_DEGRADED hold.
@@ -47,8 +49,8 @@ public:
     lost_to_degrade_= this->declare_parameter<int>("lost_frames_to_degrade", 10);
     aux_channel_    = this->declare_parameter<int>("aux_rc_channel", 8);   // RC channel with RCx_OPTION=90
     publish_hz_     = this->declare_parameter<double>("joy_publish_hz", 10.0);
-    axis_slam_      = this->declare_parameter<double>("axis_value_slam", -1.0);  // LOW  -> source set 1
-    axis_flow_      = this->declare_parameter<double>("axis_value_flow", 0.0);   // MID  -> source set 2
+    axis_slam_      = this->declare_parameter<double>("axis_value_slam", 0.0);   // MID -> source set 2 (external nav / SLAM)
+    axis_flow_      = this->declare_parameter<double>("axis_value_flow", -1.0);  // LOW -> source set 1 (optical flow + rangefinder)
 
     if (aux_channel_ < 1 || aux_channel_ > 8) {
       RCLCPP_WARN(get_logger(),
@@ -56,9 +58,9 @@ public:
       aux_channel_ = std::min(std::max(aux_channel_, 1), 8);
     }
 
-    // Start with SLAM as the primary source (set 1). We do NOT degrade until
-    // SLAM has been acquired at least once, so SLAM startup is not mistaken
-    // for a tracking loss.
+    // Start assuming SLAM (source set 2) is good. We do NOT degrade until SLAM
+    // has been acquired at least once, so SLAM startup is not mistaken for a
+    // tracking loss.
     slam_ok_       = true;
     ever_acquired_ = false;
     ok_run_        = 0;
@@ -91,11 +93,11 @@ private:
     if (!slam_ok_ && ok_run_ >= ok_to_recover_) {
       slam_ok_ = true;
       RCLCPP_INFO(get_logger(),
-        "SLAM reacquired (%d consecutive OK) -> EKF source set 1 (SLAM).", ok_run_);
+        "SLAM reacquired (%d consecutive OK) -> EKF source set 2 (external nav / SLAM).", ok_run_);
     } else if (slam_ok_ && ever_acquired_ && lost_run_ >= lost_to_degrade_) {
       slam_ok_ = false;
       RCLCPP_WARN(get_logger(),
-        "SLAM tracking lost (%d consecutive non-OK) -> EKF source set 2 (optical flow).",
+        "SLAM tracking lost (%d consecutive non-OK) -> EKF source set 1 (optical flow + rangefinder).",
         lost_run_);
     }
 

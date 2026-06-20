@@ -28,7 +28,7 @@ Topics consumed:
                                        ArduPilot uXRCE-DDS; SOLE position source for the FSM
                                        (already reflects the active EKF source set, so the raw
                                        SLAM pose is NOT consumed here — it feeds the EKF as
-                                       EK3_SRC1 external nav)
+                                       external nav, EK3 source set 2)
   /ascend/mission_control/start_cmd  (std_msgs/Empty)             — single start trigger
   /ascend/ground_station/charge_done (std_msgs/Bool)              — charging complete signal
   /ascend/ground_station/transfer_done (std_msgs/Bool)            — data transfer complete
@@ -255,6 +255,13 @@ class AscendFSMNode(Node):
         self.declare_parameter('transfer_timeout_s', self.TRANSFER_TIMEOUT_S)
         self.declare_parameter('link_timeout_s',     self.LINK_TIMEOUT_S)
         self.declare_parameter('battery_timeout_s',  self.BATTERY_TIMEOUT_S)
+        # On SLAM loss the ekf_source_manager falls the EKF back to optical flow +
+        # rangefinder (EK3 source set 1), which can still sustain GUIDED/LOITER.
+        # If True, treat flow as a valid nav source and keep flying the mission;
+        # if False (default), hold position (NAV_DEGRADED/LOITER) until SLAM
+        # recovers. The /ap/pose/filtered link-timeout failsafe still applies in
+        # both modes.
+        self.declare_parameter('continue_on_optical_flow', False)
         # Camera->body rotation for feature back-projection (#5), as a flat
         # row-major 3x3. Maps the camera optical ray (RDF: x-right, y-down,
         # z-forward) into the Pixhawk body frame (FRD: x-forward, y-right,
@@ -287,6 +294,7 @@ class AscendFSMNode(Node):
         self.transfer_timeout_s = self.get_parameter('transfer_timeout_s').value
         self.link_timeout_s     = self.get_parameter('link_timeout_s').value
         self.battery_timeout_s  = self.get_parameter('battery_timeout_s').value
+        self.continue_on_flow   = self.get_parameter('continue_on_optical_flow').value
         _R = list(self.get_parameter('camera_to_body_rotation').value or [])
         if len(_R) != 9:
             self.get_logger().warn(
@@ -301,12 +309,12 @@ class AscendFSMNode(Node):
         self._prev_state         = None
         # Single source of truth for vehicle position: ArduPilot's fused EKF
         # output (/ap/pose/filtered). It already reflects whichever EKF source
-        # set the ekf_source_manager has selected — SLAM external nav (EK3_SRC1)
-        # when tracking is healthy, optical flow + rangefinder (EK3_SRC2) when
-        # SLAM is lost. The FSM must NOT also consume the raw SLAM pose: that is
-        # a redundant EKF input which goes stale exactly when AP has switched
-        # away from it, which would drive the velocity controller off a frozen
-        # position (flyaway).
+        # set the ekf_source_manager has selected — external nav / SLAM (EK3
+        # source set 2) when tracking is healthy, optical flow + rangefinder (EK3
+        # source set 1) when SLAM is lost. The FSM must NOT also consume the raw
+        # SLAM pose: that is a redundant EKF input which goes stale exactly when
+        # AP has switched away from it, which would drive the velocity controller
+        # off a frozen position (flyaway).
         self._ap_pose            = None
         self._battery_pct        = 100.0
         self._battery_valid      = False  # True once a real (non-NaN) reading arrives
@@ -376,8 +384,8 @@ class AscendFSMNode(Node):
 
         # ── Subscribers ──────────────────────
         # Position comes solely from AP's fused EKF estimate. The raw SLAM pose
-        # (/ascend/localization/pose) is an INPUT to that EKF (EK3_SRC1 external
-        # nav), not a separate nav source for the FSM — see _ap_pose above.
+        # (/ascend/localization/pose) is an INPUT to that EKF (EK3 source set 2
+        # external nav), not a separate nav source for the FSM — see _ap_pose above.
         self.sub_ap_pose = self.create_subscription(
             PoseStamped, '/ap/pose/filtered', self._cb_ap_pose, sensor_qos
         )
@@ -611,7 +619,13 @@ class AscendFSMNode(Node):
         hold position in LOITER until it recovers, then resume. The
         ekf_source_manager handles the EKF source switch (SLAM<->optical flow);
         here we only manage flight behaviour. Battery/link failsafes are checked
-        first and take priority over this."""
+        first and take priority over this.
+
+        If continue_on_optical_flow is set, SLAM loss is not treated as a nav
+        degradation: the EKF has fallen back to optical flow + rangefinder, which
+        still drives /ap/pose/filtered, so the mission keeps running."""
+        if self.continue_on_flow:
+            return
         nav_states = {State.TAKEOFF, State.SURVEY, State.MATCH_VERIFY, State.RTL}
         if self._slam_ok:
             return

@@ -58,6 +58,7 @@ def generate_launch_description():
     width = LaunchConfiguration('width')
     height = LaunchConfiguration('height')
     emitter_enabled = LaunchConfiguration('emitter_enabled')
+    aux_rc_channel = LaunchConfiguration('aux_rc_channel')
 
     declare_target = DeclareLaunchArgument(
         'target',
@@ -146,6 +147,13 @@ def generate_launch_description():
         default_value='0',
         description='IR projector: 0=off, 1=on, 2=auto (infra only).',
     )
+    declare_aux_rc_channel = DeclareLaunchArgument(
+        'aux_rc_channel',
+        default_value='8',
+        description='RC channel (1-8) with RCx_OPTION=90 that ekf_source_manager '
+                    'drives via /ap/joy to switch EKF source set (SLAM<->flow). '
+                    'AP_DDS only overrides channels 1-8.',
+    )
 
     # ── Localization: ORB-SLAM3 RGBD odometry + ArduPilot relay ─────────────
     #    Forwards `slam_target` (defaults to `target`) so it picks the camera,
@@ -168,6 +176,7 @@ def generate_launch_description():
             'width': width,
             'height': height,
             'emitter_enabled': emitter_enabled,
+            'aux_rc_channel': aux_rc_channel,
         }.items(),
     )
 
@@ -222,6 +231,7 @@ def generate_launch_description():
         declare_width,
         declare_height,
         declare_emitter_enabled,
+        declare_aux_rc_channel,
         localization,
         mission_control,
         vision,

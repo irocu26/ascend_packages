@@ -54,6 +54,10 @@ ascend_fsm_node:
 
     # ── Mode ───────────────────────────────────────────────────────────────
     sim_mode:              true     # Set false for real hardware
+    # On SLAM loss the EKF falls back to optical flow + rangefinder (source set 1),
+    # which still drives /ap/pose/filtered. true = keep flying the mission on flow;
+    # false = hold (NAV_DEGRADED/LOITER) until SLAM (source set 2) recovers.
+    continue_on_optical_flow: false
 
 survey_planner_node:
   ros__parameters:

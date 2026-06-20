@@ -124,6 +124,7 @@ def launch_setup(context, *args, **kwargs):
     width = int(LaunchConfiguration('width').perform(context))
     height = int(LaunchConfiguration('height').perform(context))
     emitter_enabled = int(LaunchConfiguration('emitter_enabled').perform(context))
+    aux_rc_channel = int(LaunchConfiguration('aux_rc_channel').perform(context))
 
     pkg_share = get_package_share_directory('ascend_localization')
     calib = os.path.join(pkg_share, 'config', 'rgbd', calib_file)
@@ -213,7 +214,7 @@ def launch_setup(context, *args, **kwargs):
         executable='ekf_source_manager',
         name='ekf_source_manager',
         output='screen',
-        parameters=[use_sim_time],
+        parameters=[use_sim_time, {'aux_rc_channel': aux_rc_channel}],
     ))
 
     # ── Static TF base_link -> camera (hardware only) ────────────────────────
@@ -260,5 +261,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'emitter_enabled', default_value='0',
             description="IR projector: 0=off, 1=on, 2=auto (infra only)."),
+        DeclareLaunchArgument(
+            'aux_rc_channel', default_value='8',
+            description="RC channel (1-8) with RCx_OPTION=90 that ekf_source_manager "
+                        "drives via /ap/joy to switch EKF source set. AP_DDS only "
+                        "overrides channels 1-8."),
         OpaqueFunction(function=launch_setup),
     ])
