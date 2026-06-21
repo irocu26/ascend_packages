@@ -53,6 +53,9 @@ def launch_setup(context, *args, **kwargs):
     min_match_count = int(LaunchConfiguration('min_match_count').perform(context))
     square_resize = LaunchConfiguration('square_resize').perform(context).lower() \
         in ('true', '1', 'yes')
+    # Horizontal FOV drives the world-coordinate maths in sift_node. Cast to
+    # float so the node gets the numeric type it declares.
+    fov_h = float(LaunchConfiguration('fov_h').perform(context))
 
     return [Node(
         package='ascend_vision',
@@ -67,6 +70,7 @@ def launch_setup(context, *args, **kwargs):
             'min_inliers': min_inliers,
             'min_match_count': min_match_count,
             'square_resize': square_resize,
+            'fov_h': fov_h,
             'use_sim_time': (target == 'sim'),
         }],
     )]
@@ -116,6 +120,13 @@ def generate_launch_description():
                         "(default) = aspect-preserving, no distortion. true only "
                         "if your references were squashed from 1280x720 AND the "
                         "feature fills the frame.",
+        ),
+        DeclareLaunchArgument(
+            'fov_h',
+            default_value='69.4',
+            description="Camera horizontal FOV (deg) used for the world-coordinate "
+                        "maths. Default 69.4 = RealSense D435i colour. Use ~79.3 "
+                        "for the D455 (2*atan(width/2fx) from its calibration).",
         ),
         OpaqueFunction(function=launch_setup),
     ])

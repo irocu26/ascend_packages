@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASCEND Mission Control — IRoC-U 2026</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="logo">▲</span>
+      <div>
+        <h1>ASCEND MISSION CONTROL</h1>
+        <div class="tagline">IRoC-U 2026 · Elimination Round · Result Dashboard</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="conn" id="conn"><span class="dot"></span><span id="conn-text">connecting…</span></div>
+      <div class="clock" id="clock">--:--:--</div>
+    </div>
+  </header>
+
+  <!-- Top status strip -->
+  <section class="strip">
+    <div class="stat state" id="state-card">
+      <div class="stat-label">MISSION STATE</div>
+      <div class="stat-value" id="state-value">IDLE</div>
+      <div class="stat-sub" id="state-sub">waiting for start command</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">ELAPSED</div>
+      <div class="stat-value" id="elapsed">00:00</div>
+      <div class="stat-sub">mission clock</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">BATTERY</div>
+      <div class="stat-value" id="battery">—</div>
+      <div class="gauge"><div class="gauge-fill" id="battery-bar"></div></div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">FEATURES</div>
+      <div class="stat-value" id="features-count">0 / 3</div>
+      <div class="stat-sub">coordinates determined</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">TASKS</div>
+      <div class="stat-value" id="tasks-count">0 / 7</div>
+      <div class="stat-sub">elimination tasks done</div>
+    </div>
+  </section>
+
+  <div id="failsafe-banner" class="failsafe hidden">⚠ FAILSAFE</div>
+
+  <main>
+    <!-- Left: arena map -->
+    <section class="panel map-panel">
+      <h2>ARENA <span class="muted" id="arena-dims"></span></h2>
+      <div class="map-wrap">
+        <svg id="arena" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+      <div class="telemetry-row">
+        <div><span class="muted">X</span> <b id="pos-x">+0.00</b> m</div>
+        <div><span class="muted">Y</span> <b id="pos-y">+0.00</b> m</div>
+        <div><span class="muted">Z</span> <b id="pos-z">0.00</b> m</div>
+        <div><span class="muted">SRC</span> <b id="pos-src">—</b></div>
+        <div><span class="muted">SURVEY</span> <b id="survey-wp">—</b></div>
+      </div>
+    </section>
+
+    <!-- Right: tasks + features + log -->
+    <section class="panel">
+      <h2>ELIMINATION TASKS</h2>
+      <ul class="tasks" id="tasks"></ul>
+
+      <h2 style="margin-top:18px">DETERMINED COORDINATES</h2>
+      <table class="features" id="features-table">
+        <thead><tr><th>ID</th><th>X (m)</th><th>Y (m)</th><th>Conf.</th></tr></thead>
+        <tbody id="features-body">
+          <tr class="empty"><td colspan="4">No features located yet.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="report-row">
+        <button id="btn-report" class="btn">⬇ Generate &amp; Download Report</button>
+        <div class="report-links" id="report-links"></div>
+      </div>
+    </section>
+  </main>
+
+  <section class="panel log-panel">
+    <h2>MISSION TIMELINE</h2>
+    <ul class="log" id="log"></ul>
+  </section>
+
+  <footer>ASCEND · result_generation dashboard · display-only · never commands the vehicle</footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

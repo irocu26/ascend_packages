@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Seed Image Uploader</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Animated background -->
+  <div class="bg-orbs">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+
+  <div class="app-wrapper">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <div class="logo-icon">🌱</div>
+        <div class="logo-text">
+          <h1>Seed Uploader</h1>
+          <p class="tagline">Upload anywhere · Save everywhere</p>
+        </div>
+      </div>
+      <div class="server-badge" id="serverBadge">
+        <span class="status-dot"></span>
+        <span id="serverStatus">Connecting...</span>
+      </div>
+    </header>
+
+    <main class="main-grid">
+      <!-- Left: Upload Panel -->
+      <section class="panel upload-panel">
+        <div class="panel-header">
+          <h2>Upload Images</h2>
+          <p>Drag & drop or tap to select</p>
+        </div>
+
+        <!-- Drop Zone -->
+        <div class="drop-zone" id="dropZone">
+          <input type="file" id="fileInput" accept="image/*" multiple hidden />
+          <div class="drop-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/>
+              <path d="M12 12v6M9 15l3-3 3 3"/>
+            </svg>
+          </div>
+          <p class="drop-title">Drop images here</p>
+          <p class="drop-sub">or <span class="browse-link" id="browseBtn">browse files</span></p>
+          <p class="drop-hint">JPG, PNG, GIF, WEBP, HEIC · Up to 50MB each</p>
+          <div class="lr-badge">⚡ Auto-downsampled to 128×128 on save</div>
+        </div>
+
+        <!-- Preview Grid -->
+        <div class="preview-section" id="previewSection" style="display:none">
+          <div class="preview-header">
+            <span id="previewCount">0 files selected</span>
+            <button class="btn-clear" id="clearBtn">✕ Clear</button>
+          </div>
+          <div class="preview-grid" id="previewGrid"></div>
+        </div>
+
+        <!-- Upload Button -->
+        <button class="btn-upload" id="uploadBtn" disabled>
+          <span class="btn-icon">⬆</span>
+          <span id="uploadBtnText">Select images to upload</span>
+          <span class="btn-badge">128×128</span>
+          <div class="btn-shimmer"></div>
+        </button>
+
+        <!-- Progress Bar -->
+        <div class="progress-wrapper" id="progressWrapper" style="display:none">
+          <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+          <span class="progress-text" id="progressText">Uploading...</span>
+        </div>
+
+        <!-- Result Toast -->
+        <div class="toast" id="toast"></div>
+      </section>
+
+      <!-- Right: Info Panel -->
+      <aside class="panel info-panel">
+        <!-- QR Code -->
+        <div class="qr-section">
+          <h3>📱 Connect Your Phone</h3>
+          <p>Scan this QR code to open the uploader on any device on the same Wi-Fi</p>
+          <div class="qr-wrapper" id="qrWrapper">
+            <div class="qr-placeholder">
+              <div class="qr-spinner"></div>
+              <span>Generating QR...</span>
+            </div>
+          </div>
+          <div class="url-chip" id="urlChip">
+            <span id="serverUrl">Loading...</span>
+            <button class="copy-btn" id="copyBtn" title="Copy URL">⧉</button>
+          </div>
+        </div>
+
+        <!-- Save Location -->
+        <div class="info-card" id="saveLocationCard">
+          <div class="info-card-icon">📁</div>
+          <div class="info-card-body">
+            <span class="info-label">Saving to</span>
+            <span class="info-value" id="saveDir">Loading...</span>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-number" id="totalFiles">—</div>
+            <div class="stat-label">Total saved</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number" id="sessionUploads">0</div>
+            <div class="stat-label">This session</div>
+          </div>
+        </div>
+
+        <!-- Recent Files -->
+        <div class="recent-section">
+          <div class="recent-header">
+            <h3>Recent Uploads</h3>
+            <button class="refresh-btn" id="refreshBtn" title="Refresh">↻</button>
+          </div>
+          <div class="file-list" id="fileList">
+            <div class="empty-state">No uploads yet</div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+# ASCEND result dashboard — Python dependencies
+# (rclpy, std_msgs, geometry_msgs, sensor_msgs come from the ROS 2 install)
+Flask>=2.0
+reportlab>=3.6        # optional — PDF report. JSON+HTML still work without it.
