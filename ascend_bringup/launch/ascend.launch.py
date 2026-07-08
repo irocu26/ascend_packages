@@ -27,12 +27,22 @@ SITL + micro-ROS DDS agent), e.g.:
 
 Vision (sift_node) subscribes to the camera and publishes match results on
 /ascend/vision/match_result_str, which the FSM consumes to find features.
+
+It also starts the Seed Image Uploader — a standalone Flask web server (NOT a
+ROS node) on http://<this-ip>:3000 that shows a QR code so you can upload seed
+images from a phone straight into ~/ardu_ws/seed_images (the dir vision matches
+against). Disable it with `seed_server:=false`.
 """
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    IncludeLaunchDescription,
+)
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -58,7 +68,11 @@ def generate_launch_description():
     width = LaunchConfiguration('width')
     height = LaunchConfiguration('height')
     emitter_enabled = LaunchConfiguration('emitter_enabled')
+
     aux_rc_channel = LaunchConfiguration('aux_rc_channel')
+
+    # Seed Image Uploader — standalone Flask web server (not a ROS node).
+    seed_server = LaunchConfiguration('seed_server')
 
     declare_target = DeclareLaunchArgument(
         'target',
@@ -147,12 +161,22 @@ def generate_launch_description():
         default_value='0',
         description='IR projector: 0=off, 1=on, 2=auto (infra only).',
     )
+
     declare_aux_rc_channel = DeclareLaunchArgument(
         'aux_rc_channel',
         default_value='8',
         description='RC channel (1-8) with RCx_OPTION=90 that ekf_source_manager '
                     'drives via /ap/joy to switch EKF source set (SLAM<->flow). '
                     'AP_DDS only overrides channels 1-8.',
+    )
+    declare_seed_server = DeclareLaunchArgument(
+        'seed_server',
+        default_value='true',
+        description='Start the Seed Image Uploader web server (Flask, '
+                    'http://<this-ip>:3000) so seed images can be uploaded from a '
+                    'phone on the same Wi-Fi straight into `seed_images_dir`. '
+                    'Set false to skip.',
+
     )
 
     # ── Localization: ORB-SLAM3 RGBD odometry + ArduPilot relay ─────────────
@@ -214,6 +238,22 @@ def generate_launch_description():
         }.items(),
     )
 
+    # ── Seed Image Uploader: Flask web server (standalone, not a ROS node) ───
+    #    Runs `app.py` directly with the system python (flask/Pillow/qrcode are
+    #    installed system-wide). Serves http://<ip>:3000 with a QR code so seed
+    #    images can be uploaded from a phone and land in ~/ardu_ws/seed_images —
+    #    the same directory the vision SIFT node matches against.
+    seed_server_dir = os.path.expanduser(
+        '~/ardu_ws/src/ascend_packages/ascend_extras/seed_server'
+    )
+    seed_image_uploader = ExecuteProcess(
+        condition=IfCondition(seed_server),
+        cmd=['python3', os.path.join(seed_server_dir, 'app.py')],
+        cwd=seed_server_dir,
+        name='seed_image_uploader',
+        output='screen',
+    )
+
     return LaunchDescription([
         declare_target,
         declare_image_topic,
@@ -231,8 +271,12 @@ def generate_launch_description():
         declare_width,
         declare_height,
         declare_emitter_enabled,
+
         declare_aux_rc_channel,
+
+        declare_seed_server,
         localization,
         mission_control,
         vision,
+        seed_image_uploader,
     ])

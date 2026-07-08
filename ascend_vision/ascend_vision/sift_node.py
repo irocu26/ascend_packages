@@ -1,5 +1,6 @@
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 from sensor_msgs.msg import Image, CameraInfo
 from std_msgs.msg import String
 from geometry_msgs.msg import Point, PoseStamped
@@ -101,7 +102,16 @@ class SiftMatcherNode(Node):
         # ── ROS Subscriptions & Publishers ──
         self.get_logger().info(f"Subscribing to topic: {image_topic}")
         self.subscription = self.create_subscription(Image, image_topic, self.image_callback, 10)
-        self.sub_pose = self.create_subscription(PoseStamped, '/ap/pose/filtered', self.pose_cb, 10) # NEW: EKF Pose
+        # ArduPilot's DDS bridge publishes /ap/pose/filtered with BEST_EFFORT
+        # reliability. A RELIABLE subscriber (the default for depth=N) is
+        # incompatible and receives nothing, so match the publisher's QoS.
+        ap_pose_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10,
+        )
+        self.sub_pose = self.create_subscription(PoseStamped, '/ap/pose/filtered', self.pose_cb, ap_pose_qos) # NEW: EKF Pose
 
         # Camera intrinsics for back-projecting a matched feature's pixel to a
         # bearing (#5). Populated from CameraInfo; image-size fallback otherwise.
@@ -411,6 +421,13 @@ class SiftMatcherNode(Node):
             'confidence': round(float(confidence), 3),
             'hd_path':    seed['path'],
         }
+        # Include the pose-derived world coordinate when a live EKF pose has
+        # produced one, so the result dashboard/report can place the feature on
+        # the arena map even in manual flight (FSM bypassed). Without pose these
+        # stay unset and the dashboard falls back to (0, 0).
+        if self.pose_received and self.ema_initialized:
+            payload['x'] = round(float(self.smooth_x), 3)
+            payload['y'] = round(float(self.smooth_y), 3)
         if feat_geom:
             payload.update(feat_geom)
         msg = String()
